@@ -11,11 +11,97 @@ function App() {
   const [feedback, setFeedback] = useState('');
   const [submittedFeedback, setSubmittedFeedback] = useState(localStorage.getItem('fast_scanner_feedback') || '');
   const [recentScans, setRecentScans] = useState([]);
+  const [recentFeedback, setRecentFeedback] = useState([]);
   const [showModal, setShowModal] = useState(false);
-  const [currentScanId, setCurrentScanId] = useState(null);
+
+  // Helper for plain language explanation
+  const getScoreExplanation = (score) => {
+    if (score >= 90) return "🚀 Excellent! Your site is fast and optimized.";
+    if (score >= 75) return "✅ Good. Requires only minor tweaks.";
+    if (score >= 50) return "⚠️ Fair. Several performance issues found.";
+    return "❌ Poor. Critical optimization needed immediately.";
+  };
+  const [currentScanId, setCurrentScanId] = useState(() => {
+    const saved = localStorage.getItem('fast_scanner_last_id');
+    if (saved === 'null' || saved === 'undefined' || !saved) return null;
+    return saved;
+  });
   const [selectedStars, setSelectedStars] = useState(0);
   const [visitorName, setVisitorName] = useState('');
   const [stats, setStats] = useState({ live_users: 0, total_users: 0, total_reviews: 0 });
+  const [captcha, setCaptcha] = useState({ id: null, question: '' });
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+
+  // Click sound feedback
+  const playClick = () => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.08);
+
+      gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.start();
+      oscillator.stop(audioCtx.currentTime + 0.08);
+      // Close context to prevent too many open contexts
+      setTimeout(() => audioCtx.close(), 200);
+    } catch (e) {
+      console.error("Audio failed", e);
+    }
+  };
+
+  const playLaunchSound = () => {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+      // First high-pitched sharp ping
+      const osc1 = audioCtx.createOscillator();
+      const gain1 = audioCtx.createGain();
+
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(1200, audioCtx.currentTime);
+      osc1.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.1);
+
+      gain1.gain.setValueAtTime(0.2, audioCtx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+
+      osc1.connect(gain1);
+      gain1.connect(audioCtx.destination);
+
+      // Secondary resonant "tail" for more impact
+      const osc2 = audioCtx.createOscillator();
+      const gain2 = audioCtx.createGain();
+
+      osc2.type = 'triangle';
+      osc2.frequency.setValueAtTime(400, audioCtx.currentTime + 0.05);
+      osc2.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.25);
+
+      gain2.gain.setValueAtTime(0, audioCtx.currentTime);
+      gain2.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + 0.05);
+      gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+
+      osc2.connect(gain2);
+      gain2.connect(audioCtx.destination);
+
+      osc1.start();
+      osc1.stop(audioCtx.currentTime + 0.15);
+
+      osc2.start(audioCtx.currentTime + 0.05);
+      osc2.stop(audioCtx.currentTime + 0.3);
+
+      setTimeout(() => audioCtx.close(), 400);
+    } catch (e) {
+      console.error("Launch audio failed", e);
+    }
+  };
 
   // Generate random fun name
   const generateRandomName = () => {
@@ -44,11 +130,29 @@ function App() {
     }
   };
 
+  const fetchRecentFeedback = async () => {
+    try {
+      const response = await fetch('/api/recent-feedback');
+      const data = await response.json();
+      setRecentFeedback(data);
+    } catch (err) {
+      console.error("Failed to fetch recent feedback", err);
+    }
+  };
+
   const fetchStats = async () => {
     try {
       const response = await fetch('/api/stats');
       const data = await response.json();
       setStats(data);
+
+      // Sync rating stats with global stats
+      if (data.total_reviews !== undefined && data.average_rating !== undefined) {
+        setRatingStats({
+          average: data.average_rating,
+          count: data.total_reviews
+        });
+      }
     } catch (err) {
       console.error("Failed to fetch stats", err);
     }
@@ -56,6 +160,7 @@ function App() {
 
   React.useEffect(() => {
     fetchRecentScans();
+    fetchRecentFeedback();
     fetchStats();
     setVisitorName(generateRandomName());
 
@@ -80,6 +185,22 @@ function App() {
     return '😢';
   };
 
+  const formatRelativeTime = (timestamp) => {
+    if (!timestamp) return '';
+    const now = Date.now() / 1000;
+    const diff = now - timestamp;
+
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)} minutes ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+    if (diff < 172800) return 'Yesterday'; // Less than 2 days
+    if (diff < 604800) return `${Math.floor(diff / 86400)} days ago`; // Less than 7 days
+
+    // For older dates, show actual date
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
   const getGradeColor = (grade) => {
     if (grade.startsWith('A')) return '#4ade80';
     if (grade.startsWith('B')) return '#38bdf8';
@@ -92,37 +213,73 @@ function App() {
     e.preventDefault();
     if (!url) return;
 
+    // URL Sanitization
+    let inputUrl = url.trim();
+    // Remove protocol
+    inputUrl = inputUrl.replace(/^https?:\/\//i, '');
+    // Remove trailing slash
+    inputUrl = inputUrl.replace(/\/$/, '');
+
+    // Basic validation
+    if (!inputUrl.includes('.') || inputUrl.includes(' ')) {
+      setError('Please enter a valid website domain (e.g., google.com)');
+      return;
+    }
+
+    const finalUrl = 'https://' + inputUrl;
+
     setLoading(true);
     setError(null);
     setResult(null);
 
+    playLaunchSound();
     try {
       const response = await fetch('/api/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url: finalUrl }),
       });
 
       const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      if (!response.ok) {
+        throw new Error(data.error || `Server error: ${response.status}`);
+      }
       setResult(data);
       setCurrentScanId(data.id);
+      localStorage.setItem('fast_scanner_last_id', data.id);
       fetchRecentScans();
     } catch (err) {
-      setError(err.message);
+      console.error("Scan request failed:", err);
+      if (err.message === 'Failed to fetch') {
+        setError('Failed to connect to the backend server. Please ensure the backend is running and you have a stable internet connection.');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleStarClick = (stars) => {
+  const handleStarClick = async (stars) => {
+    playClick();
     if (hasRated) return;
+
+    // Fetch a new captcha whenever modal opens
+    try {
+      const response = await fetch('/api/captcha');
+      const data = await response.json();
+      setCaptcha(data);
+    } catch (err) {
+      console.error("Failed to fetch captcha", err);
+    }
+
     setSelectedStars(stars);
     setVisitorName(generateRandomName());
     setShowModal(true);
   };
 
   const submitRating = async () => {
+    playClick();
     // Check feedback word count
     const words = feedback.trim().split(/\s+/).filter(w => w.length > 0);
     if (words.length < 3) {
@@ -130,16 +287,26 @@ function App() {
       return;
     }
 
+    if (!captchaAnswer) {
+      alert("Please solve the math challenge! 🤖");
+      return;
+    }
+
     try {
+      const payload = {
+        scan_id: currentScanId,
+        rating: selectedStars,
+        comment: feedback,
+        visitor_name: visitorName.trim() || generateRandomName(),
+        captcha_id: captcha.id,
+        captcha_answer: captchaAnswer
+      };
+      console.log("DEBUG: Submitting rating with payload:", JSON.stringify(payload, null, 2));
+
       const response = await fetch('/api/rate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scan_id: currentScanId,
-          rating: selectedStars,
-          comment: feedback,
-          visitor_name: visitorName.trim() || generateRandomName()
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (data.success) {
@@ -147,10 +314,21 @@ function App() {
         setHasRated(true);
         setSubmittedFeedback(feedback);
         setShowModal(false);
+        setCaptchaAnswer(''); // Clear for security
+        fetchRecentFeedback(); // Update feedback list
+        // Also update scans in case it was a scan rating
+        if (currentScanId) fetchRecentScans();
+
         localStorage.setItem('fast_scanner_rated', 'true');
         localStorage.setItem('fast_scanner_feedback', feedback);
-        // "Teleport" back to the main scanner URL after rating
         window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (data.error) {
+        alert(data.error);
+        // Refresh captcha on error
+        const capRes = await fetch('/api/captcha');
+        const capData = await capRes.json();
+        setCaptcha(capData);
+        setCaptchaAnswer('');
       }
     } catch (err) {
       console.error("Failed to submit rating", err);
@@ -160,13 +338,13 @@ function App() {
   return (
     <div style={styles.container}>
       <header style={styles.header}>
-        <div style={styles.badge}>
+        <div style={styles.badge} className="animate-fade-in">
           <span style={styles.badgeIcon}>🛡️</span> Trusted by Ashwat Singh
         </div>
-        <h1 style={styles.title}>Fast <span style={styles.accent}>Scanner</span></h1>
-        <p style={styles.subtitle}>High-performance website security and speed analysis.</p>
+        <h1 style={styles.title} className="animate-fade-in">Fast <span style={styles.accent}>Scanner</span></h1>
+        <p className="animate-fade-in" style={{ ...styles.subtitle, animationDelay: '0.1s' }}>High-performance website security and speed analysis.</p>
 
-        <div style={styles.statsRow}>
+        <div className="animate-fade-in" style={{ ...styles.statsRow, animationDelay: '0.2s' }}>
           <div style={styles.statChip}>
             <span style={{ ...styles.statDot, backgroundColor: '#4ade80' }}></span>
             <strong>{stats.live_users}</strong> Live Users
@@ -183,7 +361,7 @@ function App() {
       </header>
 
       <main style={styles.main}>
-        <form onSubmit={handleScan} style={styles.form}>
+        <form onSubmit={handleScan} className="animate-fade-in" style={{ ...styles.form, animationDelay: '0.3s' }}>
           <div style={styles.inputWrapper}>
             <input
               type="text"
@@ -194,14 +372,14 @@ function App() {
             />
           </div>
           <button type="submit" disabled={loading} style={styles.button}>
-            {loading ? 'Scanning...' : 'Scan Website'}
+            {loading ? 'Analyzing...' : 'Launch Scan 🚀'}
           </button>
         </form>
 
         {error && <div style={styles.errorCard}>{error}</div>}
 
         {result && (
-          <div style={styles.resultsContainer}>
+          <div style={styles.resultsContainer} className="glass-card animate-fade-in">
             <div style={{ ...styles.safeBanner, backgroundColor: result.is_safe ? '#065f46' : '#7f1d1d', border: `1px solid ${result.is_safe ? '#059669' : '#dc2626'}`, color: result.is_safe ? '#ecfdf5' : '#fef2f2' }}>
               <div style={{ ...styles.gradeBadge, backgroundColor: getGradeColor(result.grade) }}>
                 {result.grade}
@@ -215,7 +393,12 @@ function App() {
             </div>
 
             <div style={styles.resultGrid}>
-              <ResultCard label="Performance Score" value={`${Math.round(result.performance_score)}/100`} sub="Internal Speed Rank" />
+              <div style={styles.card} className="card-hover">
+                <div style={styles.cardLabel}>Performance Score</div>
+                <div style={styles.cardValue}>{Math.round(result.performance_score)}/100</div>
+                <div style={styles.cardSub}>{getScoreExplanation(result.performance_score)}</div>
+              </div>
+
               <ResultCard label="Load Time" value={`${result.load_time_ms} ms`} sub="Total response time" />
               <ResultCard label="Page Size" value={`${(result.content_length / 1024).toFixed(2)} KB`} sub="Payload size" />
               <ResultCard label="Status" value={result.status} sub="HTTP response code" />
@@ -235,6 +418,7 @@ function App() {
             </div>
           </div>
         )}
+
 
         <div style={styles.layoutGroup}>
           <div style={styles.mainContent}>
@@ -259,7 +443,7 @@ function App() {
                   {[1, 2, 3, 4, 5].map((s) => (
                     <span
                       key={s}
-                      onClick={() => handleStarClick(s)}
+                      onClick={() => { playClick(); handleStarClick(s); }}
                       style={{
                         ...styles.star,
                         color: s <= (hasRated ? userRating : selectedStars) ? '#fbbf24' : '#475569',
@@ -281,6 +465,7 @@ function App() {
                 {hasRated && (
                   <button
                     onClick={() => {
+                      playClick();
                       localStorage.removeItem('fast_scanner_rated');
                       localStorage.removeItem('fast_scanner_feedback');
                       window.location.reload();
@@ -297,27 +482,138 @@ function App() {
               </div>
             </section>
           </div>
+        </div>
 
-          <aside style={styles.sidebar}>
-            <h3 style={styles.sidebarTitle}>Recent Top Scans</h3>
-            <div style={styles.scansList}>
-              {recentScans.length > 0 ? recentScans.map((scan, i) => (
-                <div key={i} style={styles.scanItem}>
-                  <div style={{ ...styles.miniGrade, backgroundColor: getGradeColor(scan.grade) }}>{scan.grade}</div>
-                  <div style={styles.scanInfo}>
-                    <div style={styles.scanUrl}>{scan.url}</div>
-                    <div style={styles.scanMeta}>
-                      {scan.visitor_name && <span>{scan.visitor_name} • </span>}
-                      {Math.round(scan.score)} points • {scan.load_time}ms
-                    </div>
+        {recentScans.length > 0 && (
+          <section style={styles.historySection}>
+            <div style={styles.historyHeader}>
+              <h3 style={styles.historyTitle}>Global Scan History</h3>
+              <p style={styles.historySubtitle}>Real-time website security & speed analysis</p>
+            </div>
+
+            <div style={styles.tableWrapper} className="desktop-table">
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.th}>Website</th>
+                    <th style={styles.th}>Grade</th>
+                    <th style={styles.th}>Performance</th>
+                    <th style={styles.th}>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentScans.map((scan) => (
+                    <tr key={scan.id} style={styles.tr}>
+                      <td style={{ ...styles.td, fontWeight: '500' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <span style={{ color: '#f8fafc' }}>
+                            {scan.url === 'General Feedback' ? 'N/A' : new URL(scan.url).hostname}
+                          </span>
+                          {scan.visitor_name && (
+                            <span style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
+                              Ran by {scan.visitor_name}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={styles.td}>
+                        {scan.grade && scan.grade !== 'N/A' ? (
+                          <span style={{
+                            ...styles.gradeTag,
+                            backgroundColor: getGradeColor(scan.grade),
+                            color: '#0f172a'
+                          }}>
+                            {scan.grade}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#64748b' }}>-</span>
+                        )}
+                      </td>
+                      <td style={styles.td}>
+                        {scan.score ? (
+                          <span style={{ color: scan.score >= 90 ? '#4ade80' : scan.score >= 50 ? '#fbbf24' : '#f87171' }}>
+                            {scan.score}
+                          </span>
+                        ) : '-'}
+                      </td>
+                      <td style={{ ...styles.td, color: '#64748b', fontSize: '0.85rem' }}>
+                        {formatRelativeTime(scan.timestamp)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mobile-cards">
+              {recentScans.map((scan) => (
+                <div key={scan.id} className="mobile-scan-card">
+                  <div className="mobile-card-header">
+                    <span style={{ color: '#f8fafc', fontWeight: '600' }}>
+                      {scan.url === 'General Feedback' ? 'N/A' : new URL(scan.url).hostname}
+                    </span>
+                    {scan.grade && scan.grade !== 'N/A' ? (
+                      <span style={{
+                        ...styles.gradeTag,
+                        backgroundColor: getGradeColor(scan.grade),
+                        color: '#0f172a',
+                        fontSize: '0.7rem',
+                        padding: '2px 8px',
+                        minWidth: 'auto'
+                      }}>
+                        {scan.grade}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mobile-card-row">
+                    <span className="mobile-label">Performance</span>
+                    <span style={{ color: scan.score >= 90 ? '#4ade80' : scan.score >= 50 ? '#fbbf24' : '#f87171' }}>
+                      {scan.score ? scan.score : '-'}
+                    </span>
+                  </div>
+                  <div className="mobile-card-row">
+                    <span className="mobile-label">Visitor</span>
+                    <span>{scan.visitor_name || 'Anonymous'}</span>
+                  </div>
+                  <div className="mobile-card-row">
+                    <span className="mobile-label">Time</span>
+                    <span>{formatRelativeTime(scan.timestamp)}</span>
                   </div>
                 </div>
-              )) : (
-                <p style={styles.emptyScans}>No scans recorded yet.</p>
-              )}
+              ))}
             </div>
-          </aside>
-        </div>
+          </section>
+        )}
+
+        {recentFeedback.length > 0 && (
+          <section style={{ ...styles.historySection, marginTop: '40px' }}>
+            <div style={styles.historyHeader}>
+              <h3 style={styles.historyTitle}>Community Feedback</h3>
+              <p style={styles.historySubtitle}>What people are saying about Fast Scanner</p>
+            </div>
+
+            <div style={styles.feedbackGrid}>
+              {recentFeedback.map((item) => (
+                <div key={item.id} style={styles.feedbackCard}>
+                  <div style={styles.feedbackHeader}>
+                    <div style={styles.feedbackUser}>
+                      <div style={styles.feedbackAvatar}>{item.visitor_name.charAt(0)}</div>
+                      <div>
+                        <div style={styles.feedbackName}>{item.visitor_name}</div>
+                        <div style={styles.feedbackTime}>{formatRelativeTime(item.timestamp)}</div>
+                      </div>
+                    </div>
+                    <div style={styles.feedbackStars}>
+                      {'★'.repeat(item.rating)}
+                      <span style={{ color: '#334155' }}>{'★'.repeat(5 - item.rating)}</span>
+                    </div>
+                  </div>
+                  <div style={styles.feedbackMsg}>"{item.comment}"</div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {showModal && (
           <div style={styles.modalOverlay}>
@@ -341,8 +637,19 @@ function App() {
                 onChange={(e) => setFeedback(e.target.value)}
               />
 
+              <div style={styles.captchaSection}>
+                <p style={styles.captchaQuestion}>🔒 Security Check: {captcha.question || 'Loading...'}</p>
+                <input
+                  type="text"
+                  placeholder="Your answer"
+                  style={styles.captchaInput}
+                  value={captchaAnswer}
+                  onChange={(e) => setCaptchaAnswer(e.target.value)}
+                />
+              </div>
+
               <div style={styles.modalActions}>
-                <button onClick={() => setShowModal(false)} style={styles.cancelBtn}>Cancel</button>
+                <button onClick={() => { playClick(); setShowModal(false); }} style={styles.cancelBtn}>Cancel</button>
                 <button onClick={submitRating} style={styles.saveBtn}>Submit Review</button>
               </div>
             </div>
@@ -358,7 +665,7 @@ function App() {
 }
 
 const ResultCard = ({ label, value, sub }) => (
-  <div style={styles.card}>
+  <div style={styles.card} className="card-hover">
     <div style={styles.cardLabel}>{label}</div>
     <div style={styles.cardValue}>{value}</div>
     <div style={styles.cardSub}>{sub}</div>
@@ -368,30 +675,31 @@ const ResultCard = ({ label, value, sub }) => (
 const styles = {
   container: {
     minHeight: '100vh',
-    backgroundColor: '#0f172a',
     color: '#f8fafc',
-    fontFamily: "'Inter', sans-serif",
+    fontFamily: "'Outfit', sans-serif",
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    padding: '20px',
+    padding: '40px 20px',
   },
   header: {
     textAlign: 'center',
-    marginBottom: '40px',
+    marginBottom: '60px',
     width: '100%',
   },
   badge: {
-    backgroundColor: '#1e293b',
-    padding: '8px 16px',
-    borderRadius: '20px',
-    fontSize: '0.8rem',
+    background: 'rgba(30, 41, 59, 0.4)',
+    backdropFilter: 'blur(10px)',
+    padding: '10px 20px',
+    borderRadius: '30px',
+    fontSize: '0.85rem',
     color: '#38bdf8',
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '8px',
-    marginBottom: '16px',
-    border: '1px solid #334155',
+    gap: '10px',
+    marginBottom: '24px',
+    border: '1px solid rgba(56, 189, 248, 0.2)',
+    fontWeight: '600',
   },
   badgeIcon: {
     fontSize: '0.9rem',
@@ -458,27 +766,30 @@ const styles = {
   },
   input: {
     width: '100%',
-    padding: '16px 20px',
-    borderRadius: '12px',
-    border: '2px solid #1e293b',
-    backgroundColor: '#1e293b',
+    padding: '20px 28px',
+    borderRadius: '16px',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    backdropFilter: 'blur(10px)',
     color: '#fff',
-    fontSize: '1rem',
+    fontSize: '1.1rem',
     outline: 'none',
-    transition: 'border-color 0.2s',
+    transition: 'all 0.3s',
   },
   button: {
     flex: '1 1 150px',
     padding: '16px 24px',
     borderRadius: '12px',
     border: 'none',
-    backgroundColor: '#38bdf8',
+    background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)',
     color: '#0f172a',
-    fontWeight: '700',
-    fontSize: '1rem',
+    fontWeight: '800',
+    fontSize: '1.05rem',
     cursor: 'pointer',
-    transition: 'transform 0.1s, opacity 0.2s',
+    boxShadow: '0 4px 14px 0 rgba(56, 189, 248, 0.39)',
     whiteSpace: 'nowrap',
+    textTransform: 'uppercase',
+    letterSpacing: '0.025em',
   },
   errorCard: {
     backgroundColor: '#451a1a',
@@ -503,6 +814,152 @@ const styles = {
     flexShrink: 0,
     boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
   },
+  historySection: {
+    width: '100%',
+    backgroundColor: '#1e293b',
+    borderRadius: '24px',
+    padding: 'clamp(16px, 4vw, 30px)',
+    border: '1px solid rgba(255,255,255,0.05)',
+    boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)',
+  },
+  historyHeader: {
+    marginBottom: '24px',
+  },
+  historyTitle: {
+    fontSize: '1.25rem',
+    fontWeight: '800',
+    color: '#f8fafc',
+    marginBottom: '4px',
+  },
+  historySubtitle: {
+    fontSize: '0.9rem',
+    color: '#64748b',
+    margin: 0,
+  },
+  tableWrapper: {
+    overflowX: 'auto',
+    borderRadius: '12px',
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    width: '100%',
+    display: 'block',
+    WebkitOverflowScrolling: 'touch',
+    border: '1px solid rgba(255,255,255,0.05)',
+    scrollbarWidth: 'thin', /* Firefox */
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    textAlign: 'left',
+    fontSize: '0.9rem',
+  },
+  th: {
+    padding: '16px 20px',
+    color: '#94a3b8',
+    fontWeight: '600',
+    borderBottom: '1px solid #334155',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    fontSize: '0.75rem',
+  },
+  tr: {
+    borderBottom: '1px solid rgba(51, 65, 85, 0.5)',
+    transition: 'background-color 0.2s',
+  },
+  td: {
+    padding: '16px 20px',
+    color: '#e2e8f0',
+    fontSize: '0.95rem',
+    whiteSpace: 'nowrap', // Prevent text wrapping breaking layout
+  },
+  feedbackGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
+    gap: '20px',
+  },
+  feedbackCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    borderRadius: '16px',
+    padding: '20px',
+    border: '1px solid rgba(255,255,255,0.05)',
+  },
+  feedbackHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '12px',
+  },
+  feedbackUser: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  feedbackAvatar: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '50%',
+    backgroundColor: '#38bdf8',
+    color: '#0f172a',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 'bold',
+    fontSize: '0.9rem',
+  },
+  feedbackName: {
+    fontSize: '0.95rem',
+    fontWeight: '600',
+    color: '#f8fafc',
+  },
+  feedbackTime: {
+    fontSize: '0.75rem',
+    color: '#64748b',
+  },
+  feedbackStars: {
+    color: '#fbbf24',
+    fontSize: '0.9rem',
+  },
+  feedbackMsg: {
+    fontSize: '0.95rem',
+    color: '#cbd5e1',
+    lineHeight: '1.5',
+    fontStyle: 'italic',
+  },
+  urlCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    fontWeight: '600',
+    color: '#38bdf8',
+    maxWidth: '300px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  favicon: {
+    width: '16px',
+    height: '16px',
+    borderRadius: '4px',
+  },
+  gradeTag: {
+    display: 'inline-flex',
+    padding: '4px 10px',
+    borderRadius: '6px',
+    fontSize: '0.75rem',
+    fontWeight: '800',
+    color: '#0f172a',
+    minWidth: '35px',
+    justifyContent: 'center',
+  },
+  scoreText: {
+    fontWeight: '700',
+    color: '#f8fafc',
+  },
+  emptyTable: {
+    padding: '40px',
+    textAlign: 'center',
+    color: '#475569',
+    fontSize: '0.9rem',
+  },
   layoutGroup: {
     display: 'flex',
     gap: '30px',
@@ -510,68 +967,7 @@ const styles = {
     width: '100%',
   },
   mainContent: {
-    flex: '1 1 500px',
-  },
-  sidebar: {
-    flex: '1 1 250px',
-    backgroundColor: '#1e293b',
-    padding: '24px',
-    borderRadius: '24px',
-    border: '1px solid rgba(255,255,255,0.05)',
-    height: 'fit-content',
-  },
-  sidebarTitle: {
-    fontSize: '1rem',
-    fontWeight: '700',
-    marginBottom: '20px',
-    color: '#38bdf8',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-  },
-  scansList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-  },
-  scanItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '10px',
-    backgroundColor: 'rgba(15, 23, 42, 0.4)',
-    borderRadius: '12px',
-  },
-  miniGrade: {
-    width: '32px',
-    height: '32px',
-    borderRadius: '6px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '0.8rem',
-    fontWeight: '800',
-    color: '#0f172a',
-  },
-  scanInfo: {
-    flex: 1,
-    overflow: 'hidden',
-  },
-  scanUrl: {
-    fontSize: '0.85rem',
-    fontWeight: '600',
-    color: '#f8fafc',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  scanMeta: {
-    fontSize: '0.7rem',
-    color: '#64748b',
-  },
-  emptyScans: {
-    fontSize: '0.85rem',
-    color: '#475569',
-    textAlign: 'center',
+    flex: '1 1 100%',
   },
   modalOverlay: {
     position: 'fixed',
@@ -623,6 +1019,31 @@ const styles = {
     outline: 'none',
     marginBottom: '16px',
   },
+  captchaSection: {
+    backgroundColor: 'rgba(56, 189, 248, 0.05)',
+    padding: '16px',
+    borderRadius: '16px',
+    marginBottom: '24px',
+    border: '1px solid rgba(56, 189, 248, 0.1)',
+    textAlign: 'left',
+  },
+  captchaQuestion: {
+    fontSize: '0.9rem',
+    color: '#38bdf8',
+    fontWeight: '700',
+    marginBottom: '8px',
+    margin: 0,
+  },
+  captchaInput: {
+    width: '100%',
+    padding: '10px 14px',
+    borderRadius: '8px',
+    backgroundColor: '#0f172a',
+    color: '#fff',
+    border: '1px solid #334155',
+    fontSize: '1rem',
+    outline: 'none',
+  },
   modalTextarea: {
     width: '100%',
     minHeight: '120px',
@@ -666,27 +1087,33 @@ const styles = {
     gap: '16px',
   },
   card: {
-    backgroundColor: '#1e293b',
-    padding: '20px',
-    borderRadius: '16px',
+    background: 'rgba(30, 41, 59, 0.4)',
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+    padding: '24px 20px',
+    borderRadius: '20px',
     textAlign: 'center',
-    border: '1px solid rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    transition: 'transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
   },
   cardLabel: {
     color: '#94a3b8',
-    fontSize: '0.8rem',
-    marginBottom: '6px',
+    fontSize: '0.75rem',
+    fontWeight: '600',
+    marginBottom: '8px',
     textTransform: 'uppercase',
+    letterSpacing: '0.05em',
   },
   cardValue: {
-    fontSize: '1.5rem',
-    fontWeight: '700',
+    fontSize: '1.75rem',
+    fontWeight: '800',
     color: '#38bdf8',
+    marginBottom: '4px',
   },
   cardSub: {
-    fontSize: '0.75rem',
+    fontSize: '0.8rem',
     color: '#64748b',
-    marginTop: '4px',
+    lineHeight: '1.3',
   },
   bugsSection: {
     gridColumn: '1 / -1',

@@ -8,6 +8,7 @@ High-performance website security and speed analysis tool. Built with ❤️ by 
 - **Safety Check**: Automated security scanning for HTTPS, suspicious URL patterns, and common vulnerabilities.
 - **Bug Detection**: Identifies missing meta tags, SEO issues, and HTTP errors.
 - **Community Ratings**: Rate websites and view feedback from other users.
+- **Global Scan History**: Persistent table displaying live updates and historical data from scanners worldwide.
 - **Live Statistics**: Real-time tracking of active users, total scans, and reviews.
 - **Premium UI**: Modern, dark-themed interface with glassmorphism and smooth animations.
 

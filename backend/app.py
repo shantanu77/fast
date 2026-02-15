@@ -1,5 +1,6 @@
 import os
 import time
+import re
 import random
 import requests
 from flask import Flask, jsonify, request
@@ -54,9 +55,9 @@ def generate_random_name():
 # Scan Record Model
 class ScanRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    url = db.Column(db.String(255), nullable=False)
-    performance_score = db.Column(db.Float, nullable=False)
-    grade = db.Column(db.String(5), nullable=False)
+    url = db.Column(db.String(255), nullable=True) # Changed from nullable=False
+    performance_score = db.Column(db.Float, nullable=True) # Changed from nullable=False
+    grade = db.Column(db.String(5), nullable=True) # Changed from nullable=False
     load_time = db.Column(db.Float)
     status_code = db.Column(db.Integer)
     rating = db.Column(db.Integer, nullable=True)
@@ -64,22 +65,72 @@ class ScanRecord(db.Model):
     visitor_name = db.Column(db.String(100), nullable=True)
     timestamp = db.Column(db.Float, default=time.time)
 
-    def __init__(self, url, performance_score, grade, load_time, status_code):
+    def __init__(self, url=None, performance_score=None, grade=None, load_time=None, status_code=None):
         self.url = url
         self.performance_score = performance_score
         self.grade = grade
         self.load_time = load_time
+        self.load_time = load_time
         self.status_code = status_code
+        self.timestamp = time.time()
+
+# Feedback Model
+class Feedback(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    rating = db.Column(db.Integer, nullable=False)
+    comment = db.Column(db.Text, nullable=False)
+    visitor_name = db.Column(db.String(100), nullable=True)
+    scan_id = db.Column(db.Integer, db.ForeignKey('scan_record.id'), nullable=True) # Optional link to a scan
+    timestamp = db.Column(db.Float, default=time.time)
+
+    def __init__(self, rating, comment, visitor_name, scan_id=None):
+        self.rating = rating
+        self.comment = comment
+        self.visitor_name = visitor_name
+        self.scan_id = scan_id
         self.timestamp = time.time()
 
 # Create tables
 with app.app_context():
     try:
-        # Drop and recreate for schema change in development
-        db.drop_all()
+        # Create tables only if they don't exist
         db.create_all()
     except Exception as e:
         print(f"DB init error: {e}")
+
+# Store captchas with timestamps (id -> {solution, timestamp})
+captcha_store = {}
+CAPTCHA_EXPIRY_SECONDS = 600  # 10 minutes
+
+def cleanup_expired_captchas():
+    """Remove captchas older than CAPTCHA_EXPIRY_SECONDS"""
+    current_time = time.time()
+    expired = [cid for cid, data in captcha_store.items() 
+               if current_time - data['timestamp'] > CAPTCHA_EXPIRY_SECONDS]
+    for cid in expired:
+        captcha_store.pop(cid, None)
+    if expired:
+        print(f"DEBUG: Cleaned up {len(expired)} expired captchas")
+
+@app.route('/api/captcha', methods=['GET'])
+def get_captcha():
+    cleanup_expired_captchas()  # Clean up old captchas
+    
+    num1 = random.randint(1, 10)
+    num2 = random.randint(1, 10)
+    solution = num1 + num2
+    captcha_id = str(random.randint(100000, 999999))
+    
+    captcha_store[captcha_id] = {
+        'solution': solution,
+        'timestamp': time.time()
+    }
+    
+    print(f"DEBUG: Generated captcha {captcha_id} with solution {solution}. Store now has {len(captcha_store)} captchas.")
+    return jsonify({
+        "id": captcha_id,
+        "question": f"What is {num1} + {num2}?"
+    })
 
 @app.route('/api/health')
 def health():
@@ -88,17 +139,30 @@ def health():
 @app.route('/api/scan', methods=['POST'])
 def scan_url():
     data = request.json
-    url = data.get('url')
+    url = data.get('url', '').strip()
     
+    # URL Sanitization & Validation
     if not url:
         return jsonify({"error": "URL is required"}), 400
 
-    if not url.startswith(('http://', 'https://')):
-        url = 'https://' + url
+    # Remove protocol if present
+    url = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
+    
+    # Split to get domain only for basic validation, but keep path for scan
+    domain = url.split('/')[0].split('?')[0].split('#')[0]
+    
+    # Basic domain validation
+    if '.' not in domain or ' ' in domain:
+         return jsonify({"error": "Invalid domain format. Please enter a valid URL (e.g., google.com)"}), 400
+
+    # Enforce HTTPS
+    url = 'https://' + url
+    print(f"DEBUG: Processing scan for URL: {url}")
 
     try:
         start_time = time.time()
-        response = requests.get(url, timeout=10, allow_redirects=True)
+        # Disable SSL verification for development/testing if needed
+        response = requests.get(url, timeout=10, allow_redirects=True, verify=False)
         end_time = time.time()
         
         load_time = round((end_time - start_time) * 1000, 2)  # in ms
@@ -182,43 +246,82 @@ def scan_url():
             "grade": grade
         })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"ERROR during scan for {url}: {str(e)}")
+        return jsonify({"error": f"Failed to analyze website: {str(e)}"}), 500
 
 @app.route('/api/rate', methods=['POST'])
 def rate_site():
     data = request.json
+    print(f"DEBUG: Received rate request data: {data}")
     scan_id = data.get('scan_id')
     rating = data.get('rating')
     comment = data.get('comment')
     visitor_name = data.get('visitor_name', '').strip()
+    captcha_id = data.get('captcha_id')
+    captcha_answer = data.get('captcha_answer')
     
     # Generate random name if none provided
     if not visitor_name:
         visitor_name = generate_random_name()
     
-    if not scan_id:
-        return jsonify({"error": "Scan ID is required"}), 400
+    # 1. Validate Captcha
+    cleanup_expired_captchas()  # Clean up old captchas
+    
+    print(f"DEBUG: Captcha validation - ID: {captcha_id}, Answer: {captcha_answer}")
+    print(f"DEBUG: Current captcha store has {len(captcha_store)} entries: {list(captcha_store.keys())}")
+    
+    if not captcha_id or captcha_id not in captcha_store:
+        print(f"DEBUG: Captcha {captcha_id} not found in store!")
+        return jsonify({"error": "Captcha expired or invalid. Please refresh the page and try again."}), 400
+    
+    # Check if captcha is expired
+    captcha_data = captcha_store[captcha_id]
+    if time.time() - captcha_data['timestamp'] > CAPTCHA_EXPIRY_SECONDS:
+        print(f"DEBUG: Captcha {captcha_id} expired (age: {time.time() - captcha_data['timestamp']}s)")
+        captcha_store.pop(captcha_id, None)
+        return jsonify({"error": "Captcha expired. Please refresh the page and try again."}), 400
+    
+    try:
+        if int(captcha_answer) != captcha_data['solution']:
+            print(f"DEBUG: Wrong answer! Expected {captcha_data['solution']}, got {captcha_answer}")
+            return jsonify({"error": "Wrong answer! Please try again."}), 400
+        print(f"DEBUG: Captcha validated successfully!")
+        captcha_store.pop(captcha_id, None)  # Use once
+    except Exception as e:
+        print(f"DEBUG: Captcha validation exception: {e}")
+        return jsonify({"error": "Invalid captcha format"}), 400
+
     if rating is None or not (1 <= rating <= 5):
         return jsonify({"error": "Invalid rating"}), 400
 
     try:
-        scan = ScanRecord.query.get(scan_id)
-        if not scan:
-            return jsonify({"error": "Scan not found"}), 404
-            
-        scan.rating = rating
-        scan.comment = comment
-        scan.visitor_name = visitor_name
+        # Save to Feedback table
+        feedback_entry = Feedback(
+            rating=rating,
+            comment=comment,
+            visitor_name=visitor_name,
+            scan_id=scan_id if scan_id else None
+        )
+        db.session.add(feedback_entry)
+        
+        # If linked to a scan, also update the ScanRecord for backward compatibility/easy access
+        if scan_id:
+            scan = ScanRecord.query.get(scan_id)
+            if scan:
+                scan.rating = rating
+                scan.comment = comment
+                scan.visitor_name = visitor_name
+        
         db.session.commit()
         
-        # Calculate stats from all rated scans
-        all_rated = ScanRecord.query.filter(ScanRecord.rating.isnot(None)).all()
-        avg_rating = sum(r.rating for r in all_rated) / len(all_rated) if all_rated else 0.0
+        # Calculate stats from Feedback table
+        all_feedback = Feedback.query.all()
+        avg_rating = sum(r.rating for r in all_feedback) / len(all_feedback) if all_feedback else 0.0
         
         return jsonify({
             "success": True, 
             "average_rating": float(f"{avg_rating:.1f}"),
-            "total_ratings": len(all_rated),
+            "total_ratings": len(all_feedback),
             "submitted_comment": comment,
             "visitor_name": visitor_name
         })
@@ -229,15 +332,35 @@ def rate_site():
 @app.route('/api/recent-scans', methods=['GET'])
 def recent_scans():
     try:
-        scans = ScanRecord.query.order_by(ScanRecord.performance_score.desc()).limit(10).all()
+        # Show latest 50 SCANS ONLY (filter out general feedback which has no URL/Grade)
+        scans = ScanRecord.query.filter(ScanRecord.url != "General Feedback").order_by(ScanRecord.timestamp.desc()).limit(50).all()
         return jsonify([{
             "id": s.id,
             "url": s.url,
             "grade": s.grade,
             "score": s.performance_score,
             "load_time": s.load_time,
-            "visitor_name": s.visitor_name
+            "visitor_name": s.visitor_name,
+            "rating": s.rating,
+            "comment": s.comment,
+            "timestamp": s.timestamp
         } for s in scans])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/recent-feedback', methods=['GET'])
+def recent_feedback():
+    try:
+        # Show latest 20 feedbacks
+        feedbacks = Feedback.query.order_by(Feedback.timestamp.desc()).limit(20).all()
+        return jsonify([{
+            "id": f.id,
+            "rating": f.rating,
+            "comment": f.comment,
+            "visitor_name": f.visitor_name,
+            "scan_id": f.scan_id,
+            "timestamp": f.timestamp
+        } for f in feedbacks])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -261,18 +384,23 @@ def get_stats():
         # Cleanup old entries (optional but good practice)
         for ip in list(active_users.keys()):
             if active_users[ip] < cutoff - 3600: # Remove if inactive for > 1 hour
-                del active_users[ip]
+                active_users.pop(ip, None)
         
-        # 2. Total Scans
-        total_scans = db.session.query(db.func.count(ScanRecord.id)).scalar() or 0
+        # 2. Total Scans (Real scans only)
+        total_scans = db.session.query(db.func.count(ScanRecord.id)).filter(ScanRecord.url != "General Feedback").scalar() or 0
         
-        # 3. Total Reviews
-        total_reviews = db.session.query(db.func.count(ScanRecord.id)).filter(ScanRecord.rating.isnot(None)).scalar() or 0
+        # 3. Total Reviews (From Feedback table)
+        total_reviews = db.session.query(db.func.count(Feedback.id)).scalar() or 0
         
+        # 4. Average Rating
+        avg_rating = db.session.query(db.func.avg(Feedback.rating)).scalar() or 0.0
+        avg_rating = float(f"{avg_rating:.1f}")
+
         return jsonify({
             "live_users": len(live_ips) + random.randint(1, 3), # Add a small random offset to "feel" more alive for single users
             "total_users": total_scans + 125, # Offset starting point to look established
-            "total_reviews": total_reviews
+            "total_reviews": total_reviews,
+            "average_rating": avg_rating
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
