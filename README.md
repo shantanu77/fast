@@ -1,6 +1,6 @@
-# Fast Scanner 🛡️
+                # Fast Scanner 🛡️
 
-High-performance website security and speed analysis tool. Built with ❤️ by **Ashwat Singh**, a 10-year-old developer from Heritage Experiential School, Gurgaon.
+High-performance website security and speed analysis tool. Built with ❤️ by **Aashvath Singh**, a 10-year-old developer from Heritage Experiential School, Gurgaon.
 
 ## 🚀 Features
 

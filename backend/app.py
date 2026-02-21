@@ -18,6 +18,16 @@ CORS(app)
 # User Tracking for "Live Users"
 active_users = {} # {ip: last_activity_timestamp}
 
+# Admin PIN Security System
+# The PIN is hardcoded here - only Aashvath should know it
+ADMIN_PIN = '2026110507713e5ngaashvath'
+
+# Maximum failed PIN attempts before permanent lock
+MAX_PIN_ATTEMPTS = 3
+
+# Track user ratings by IP {ip: {'count': int, 'locked': bool, 'pin_attempts': int, 'first_rating_time': timestamp}}
+user_rating_tracker = {}
+
 @app.before_request
 def track_user():
     # Only track API requests
@@ -136,6 +146,111 @@ def get_captcha():
 def health():
     return jsonify({"status": "ok", "message": "Hello World from Fast API!"})
 
+# Kids Safe - 18+ Content Detection
+ADULT_CONTENT_KEYWORDS = [
+    'adult', 'porn', 'xxx', 'sex', 'mature', '18+', 'nsfw', 'nude', 'naked',
+    'escort', 'dating', 'singles', 'hookup', 'cam', 'live cam', 'webcam'
+]
+
+ADULT_CONTENT_META = [
+    'adult', 'mature', '18+', 'restricted', 'nsfw', 'xxx'
+]
+
+@app.route('/api/check-content-safety', methods=['POST'])
+def check_content_safety():
+    """Check if website contains 18+ content before scanning"""
+    data = request.json
+    url = data.get('url', '').strip()
+    
+    if not url:
+        return jsonify({"error": "URL is required"}), 400
+    
+    # Remove protocol if present
+    url = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
+    domain = url.split('/')[0].split('?')[0].split('#')[0]
+    
+    if '.' not in domain or ' ' in domain:
+        return jsonify({"error": "Invalid domain format"}), 400
+    
+    url = 'https://' + url
+    
+    try:
+        response = requests.get(url, timeout=10, allow_redirects=True, verify=False)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Check 1: Domain name contains adult keywords
+        domain_lower = domain.lower()
+        domain_flags = [kw for kw in ADULT_CONTENT_KEYWORDS if kw in domain_lower]
+        
+        # Check 2: Meta tags (rating, description, keywords)
+        meta_flags = []
+        
+        # Check rating meta tag
+        rating_meta = soup.find('meta', attrs={'name': 'rating'})
+        if rating_meta:
+            rating_content = rating_meta.get('content', '').lower()
+            if any(term in rating_content for term in ['mature', 'adult', 'restricted', 'rta-5042']):
+                meta_flags.append(f"Meta rating: {rating_content}")
+        
+        # Check description meta
+        desc_meta = soup.find('meta', attrs={'name': 'description'})
+        if desc_meta:
+            desc_content = desc_meta.get('content', '').lower()
+            found = [kw for kw in ADULT_CONTENT_KEYWORDS if kw in desc_content]
+            if found:
+                meta_flags.append(f"Description contains: {', '.join(found)}")
+        
+        # Check keywords meta
+        keywords_meta = soup.find('meta', attrs={'name': 'keywords'})
+        if keywords_meta:
+            keywords_content = keywords_meta.get('content', '').lower()
+            found = [kw for kw in ADULT_CONTENT_KEYWORDS if kw in keywords_content]
+            if found:
+                meta_flags.append(f"Keywords contain: {', '.join(found)}")
+        
+        # Check 3: Title contains adult keywords
+        title_flags = []
+        title = soup.title.string if soup.title else ""
+        if title:
+            title_lower = title.lower()
+            found = [kw for kw in ADULT_CONTENT_KEYWORDS if kw in title_lower]
+            if found:
+                title_flags.append(f"Title contains: {', '.join(found)}")
+        
+        # Check 4: RTA label (common adult site verification)
+        has_rta_label = False
+        rta_meta = soup.find('meta', attrs={'name': 'RATING'})
+        if rta_meta and 'RTA' in str(rta_meta):
+            has_rta_label = True
+            meta_flags.append("RTA-5042-1996-1400-1577-RTA")
+        
+        # Determine if 18+ content detected
+        is_adult = bool(domain_flags or meta_flags or title_flags or has_rta_label)
+        
+        # Build warning message
+        warning_reasons = domain_flags + meta_flags + title_flags
+        
+        return jsonify({
+            "is_adult_content": is_adult,
+            "warning": is_adult,
+            "url": url,
+            "title": title if title else "Unknown",
+            "reasons": warning_reasons[:3],  # Limit to top 3 reasons
+            "message": "This website may contain adult (18+) content." if is_adult else "Content appears safe for all ages."
+        })
+        
+    except requests.exceptions.Timeout:
+        return jsonify({"error": "Request timed out while checking content safety"}), 504
+    except Exception as e:
+        print(f"ERROR checking content safety for {url}: {str(e)}")
+        # If we can't determine, return warning to be safe
+        return jsonify({
+            "is_adult_content": False,
+            "warning": False,
+            "error": "Could not verify content safety",
+            "message": "Proceed with caution"
+        })
+
 @app.route('/api/scan', methods=['POST'])
 def scan_url():
     data = request.json
@@ -191,15 +306,27 @@ def scan_url():
             safety_reasons.append("Connection is not secure (Missing HTTPS)")
         
         # 2. Suspicious URL Patterns
-        suspicious_keywords = ['login', 'verify', 'update', 'account', 'secure', 'banking', 'wp-admin']
+        # NOTE: This check is for phishing-style domains like "secure-bank-login.com"
+        # It should NOT flag legitimate sites like wikipedia.org
+        suspicious_exact_matches = ['wp-admin', 'wp-login']
+        suspicious_patterns = ['-login-', '-verify-', '-update-', '-account-', '-secure-', '-banking-']
         url_domain = response.url.split('//')[-1].split('/')[0]
+        url_domain_lower = url_domain.lower()
         
+        # Check for excessive hyphens (common in phishing domains)
         if url_domain.count('-') > 3:
             is_safe = False
             safety_reasons.append("Domain name looks suspicious (Too many hyphens)")
-            
-        for keyword in suspicious_keywords:
-            if keyword in url_domain.lower():
+        
+        # Check for suspicious patterns (must be between hyphens or at start/end)
+        for pattern in suspicious_patterns:
+            if pattern in url_domain_lower:
+                is_safe = False
+                safety_reasons.append(f"Suspicious pattern '{pattern}' found in domain")
+        
+        # Check for exact matches of sensitive paths
+        for keyword in suspicious_exact_matches:
+            if keyword in url_domain_lower:
                 is_safe = False
                 safety_reasons.append(f"Suspicious keyword '{keyword}' found in domain")
 
@@ -209,7 +336,7 @@ def scan_url():
 
         status_message = "Safe to Go" if is_safe else "Not a Trusted Website"
 
-        # Performance Grade Logic
+        # Performance Grade Logic - Based ONLY on performance, NOT safety
         if load_time < 500: grade = "A+"
         elif load_time < 1000: grade = "A"
         elif load_time < 1800: grade = "B"
@@ -217,8 +344,9 @@ def scan_url():
         elif load_time < 5000: grade = "D"
         else: grade = "F"
 
-        if not is_safe:
-            grade = "D-" if grade in ["A+", "A", "B", "C"] else grade
+        # NOTE: We removed the grade downgrade for unsafe sites.
+        # Performance grade should reflect actual performance, not safety status.
+        # Safety is shown separately in the safety_status field.
 
         # Save scan record
         new_scan = ScanRecord(
@@ -249,6 +377,90 @@ def scan_url():
         print(f"ERROR during scan for {url}: {str(e)}")
         return jsonify({"error": f"Failed to analyze website: {str(e)}"}), 500
 
+@app.route('/api/check-rating-status', methods=['GET'])
+def check_rating_status():
+    """Check if user can rate and if they need PIN"""
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    
+    user_data = user_rating_tracker.get(client_ip, {'count': 0, 'locked': False, 'pin_attempts': 0})
+    
+    return jsonify({
+        'can_rate': not user_data['locked'] and user_data['count'] == 0,
+        'needs_pin': user_data['count'] >= 1 and not user_data['locked'],
+        'is_locked': user_data['locked'],
+        'rating_count': user_data['count'],
+        'pin_attempts': user_data.get('pin_attempts', 0),
+        'pin_attempts_remaining': MAX_PIN_ATTEMPTS - user_data.get('pin_attempts', 0)
+    })
+
+@app.route('/api/verify-pin', methods=['POST'])
+def verify_pin():
+    """Verify admin PIN to allow additional rating - 3 attempts allowed"""
+    data = request.json
+    provided_pin = data.get('pin', '')
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    
+    user_data = user_rating_tracker.get(client_ip, {'count': 0, 'locked': False, 'pin_attempts': 0})
+    
+    # If already locked, reject immediately
+    if user_data.get('locked', False):
+        return jsonify({
+            'success': False, 
+            'error': 'Your account is permanently locked due to incorrect PIN attempts.',
+            'locked': True
+        }), 403
+    
+    if provided_pin == ADMIN_PIN:
+        # Correct PIN - reset count to allow one more rating, reset attempts
+        user_rating_tracker[client_ip] = {
+            'count': 0,  # Reset to allow one more
+            'locked': False,
+            'pin_attempts': 0,  # Reset attempts on success
+            'first_rating_time': user_data.get('first_rating_time', time.time())
+        }
+        return jsonify({
+            'success': True,
+            'message': 'PIN verified. You can submit one more rating.'
+        })
+    else:
+        # Wrong PIN - increment attempt counter
+        current_attempts = user_data.get('pin_attempts', 0) + 1
+        remaining_attempts = MAX_PIN_ATTEMPTS - current_attempts
+        
+        if current_attempts >= MAX_PIN_ATTEMPTS:
+            # PERMANENTLY LOCK this IP after 3 failed attempts
+            user_rating_tracker[client_ip] = {
+                'count': user_data.get('count', 0),
+                'locked': True,
+                'pin_attempts': current_attempts,
+                'locked_at': time.time(),
+                'first_rating_time': user_data.get('first_rating_time', time.time())
+            }
+            print(f"SECURITY ALERT: IP {client_ip} PERMANENTLY LOCKED after {current_attempts} failed PIN attempts!")
+            return jsonify({
+                'success': False,
+                'error': f'Incorrect PIN! You have used all {MAX_PIN_ATTEMPTS} attempts. Your account is now permanently locked.',
+                'locked': True,
+                'attempts_used': current_attempts,
+                'attempts_remaining': 0
+            }), 403
+        else:
+            # Still have attempts remaining
+            user_rating_tracker[client_ip] = {
+                'count': user_data.get('count', 0),
+                'locked': False,
+                'pin_attempts': current_attempts,
+                'first_rating_time': user_data.get('first_rating_time', time.time())
+            }
+            print(f"SECURITY: IP {client_ip} entered wrong PIN. Attempt {current_attempts}/{MAX_PIN_ATTEMPTS}")
+            return jsonify({
+                'success': False,
+                'error': f'Incorrect PIN! You have {remaining_attempts} attempt(s) remaining before permanent lock.',
+                'locked': False,
+                'attempts_used': current_attempts,
+                'attempts_remaining': remaining_attempts
+            }), 403
+
 @app.route('/api/rate', methods=['POST'])
 def rate_site():
     data = request.json
@@ -259,6 +471,26 @@ def rate_site():
     visitor_name = data.get('visitor_name', '').strip()
     captcha_id = data.get('captcha_id')
     captcha_answer = data.get('captcha_answer')
+    
+    # Get client IP for tracking
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    
+    # Check user's rating status
+    user_data = user_rating_tracker.get(client_ip, {'count': 0, 'locked': False})
+    
+    # Check if user is permanently locked
+    if user_data.get('locked', False):
+        return jsonify({
+            "error": "Your rating privileges have been permanently locked due to security policy violation.",
+            "locked": True
+        }), 403
+    
+    # Check if user has already rated (needs PIN for additional ratings)
+    if user_data.get('count', 0) >= 1:
+        return jsonify({
+            "error": "You have already submitted a rating. Enter the admin PIN to submit another.",
+            "needs_pin": True
+        }), 403
     
     # Generate random name if none provided
     if not visitor_name:
@@ -314,6 +546,14 @@ def rate_site():
         
         db.session.commit()
         
+        # Track this IP as having rated
+        current_count = user_data.get('count', 0)
+        user_rating_tracker[client_ip] = {
+            'count': current_count + 1,
+            'locked': user_data.get('locked', False),
+            'first_rating_time': user_data.get('first_rating_time', time.time())
+        }
+        
         # Calculate stats from Feedback table
         all_feedback = Feedback.query.all()
         avg_rating = sum(r.rating for r in all_feedback) / len(all_feedback) if all_feedback else 0.0
@@ -323,7 +563,8 @@ def rate_site():
             "average_rating": float(f"{avg_rating:.1f}"),
             "total_ratings": len(all_feedback),
             "submitted_comment": comment,
-            "visitor_name": visitor_name
+            "visitor_name": visitor_name,
+            "ratings_remaining": 0  # They've used their one free rating
         })
     except Exception as e:
         db.session.rollback()

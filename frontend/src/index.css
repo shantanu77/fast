@@ -161,3 +161,83 @@ input:focus {
   text-transform: uppercase;
   letter-spacing: 0.025em;
 }
+
+/* Premium Website Row Hover Effects */
+.website-row {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.website-row:hover {
+  background: linear-gradient(90deg, rgba(56, 189, 248, 0.1) 0%, rgba(56, 189, 248, 0.05) 100%) !important;
+  box-shadow: inset 0 0 20px rgba(56, 189, 248, 0.1), 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  transform: translateX(4px);
+}
+
+.website-row:hover td {
+  color: #38bdf8;
+}
+
+.website-row:active {
+  transform: translateX(2px) scale(0.995);
+}
+
+/* Premium Mobile Website Card Hover */
+.mobile-website-header {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.mobile-website-header:hover {
+  background: linear-gradient(145deg, rgba(56, 189, 248, 0.15) 0%, rgba(30, 41, 59, 0.6) 100%) !important;
+  border-color: rgba(56, 189, 248, 0.4) !important;
+  box-shadow: 0 8px 25px -5px rgba(56, 189, 248, 0.25), 0 4px 10px rgba(0, 0, 0, 0.3) !important;
+  transform: translateY(-2px);
+}
+
+.mobile-website-header:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Premium Button Hover Effects */
+button {
+  position: relative;
+  overflow: hidden;
+}
+
+button::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  transition: width 0.3s ease, height 0.3s ease;
+}
+
+button:active::after {
+  width: 200%;
+  height: 200%;
+}
+
+/* Specific button type enhancements */
+button[style*="saveBtn"],
+button[style*="pinVerifyBtn"],
+button[style*="kidsSafeProceedBtn"] {
+  position: relative;
+}
+
+button[style*="saveBtn"]:hover,
+button[style*="pinVerifyBtn"]:hover,
+button[style*="kidsSafeProceedBtn"]:hover {
+  filter: brightness(1.15) !important;
+  transform: translateY(-3px) scale(1.02) !important;
+}
+
+button[style*="cancelBtn"]:hover,
+button[style*="pinCancelBtn"]:hover,
+button[style*="kidsSafeCancelBtn"]:hover {
+  filter: brightness(1.2) !important;
+  transform: translateY(-2px) !important;
+}
