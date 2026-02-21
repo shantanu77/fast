@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
 
+// Helper to extract domain from any URL format
+const extractDomain = (url) => {
+  if (!url) return '';
+  // Remove protocol
+  let domain = url.replace(/^https?:\/\//i, '');
+  // Remove www.
+  domain = domain.replace(/^www\./i, '');
+  // Get domain only (before /, ?, or #)
+  domain = domain.split('/')[0].split('?')[0].split('#')[0];
+  return domain.toLowerCase();
+};
+
 const SearchPage = ({ onBack, onScanNew }) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -12,6 +24,8 @@ const SearchPage = ({ onBack, onScanNew }) => {
   const [showScanModal, setShowScanModal] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [scanningNew, setScanningNew] = useState(false);
+  const [autoScanning, setAutoScanning] = useState(false);
+  const [scannedDomain, setScannedDomain] = useState('');
 
   const perPage = 20;
 
@@ -76,6 +90,15 @@ const SearchPage = ({ onBack, onScanNew }) => {
       if (response.ok) {
         setResults(data.results || []);
         setTotal(data.total || 0);
+        
+        // Auto-scan if not found and this is a domain-like query
+        if (data.total === 0 && searchPage === 1) {
+          const domain = extractDomain(query);
+          if (domain && domain.includes('.')) {
+            setScannedDomain(domain);
+            await autoScanDomain(domain);
+          }
+        }
       } else {
         setError(data.error || 'Search failed');
       }
@@ -86,6 +109,34 @@ const SearchPage = ({ onBack, onScanNew }) => {
     }
   };
 
+  // Auto-scan a domain without asking for new URL
+  const autoScanDomain = async (domain) => {
+    setAutoScanning(true);
+    try {
+      const response = await fetch('/api/websites/scan-new', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: domain }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        if (data.exists) {
+          // Domain exists, refresh search
+          await searchWebsites(1);
+        } else {
+          // New scan completed, refresh search to show it
+          await searchWebsites(1);
+        }
+      }
+    } catch (err) {
+      console.error('Auto-scan failed:', err);
+    } finally {
+      setAutoScanning(false);
+    }
+  };
+
   const handleScanNew = async () => {
     if (!newUrl.trim()) return;
 
@@ -93,10 +144,11 @@ const SearchPage = ({ onBack, onScanNew }) => {
     setError(null);
 
     try {
+      const domain = extractDomain(newUrl);
       const response = await fetch('/api/websites/scan-new', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: newUrl }),
+        body: JSON.stringify({ url: domain }),
       });
 
       const data = await response.json();
@@ -104,13 +156,13 @@ const SearchPage = ({ onBack, onScanNew }) => {
       if (response.ok) {
         if (data.exists) {
           alert('Website already exists in database!');
-          setQuery(newUrl);
+          setQuery(domain);
           searchWebsites();
         } else {
           alert('Website scanned and added successfully!');
           setShowScanModal(false);
           setNewUrl('');
-          setQuery('');
+          setQuery(domain);
           searchWebsites();
         }
       } else {
@@ -150,15 +202,22 @@ const SearchPage = ({ onBack, onScanNew }) => {
         <div style={styles.searchBox}>
           <input
             type="text"
-            placeholder="Search by URL or domain..."
+            placeholder="Enter URL (e.g., web.abc.com/hello?a=1) - we'll search by domain"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             style={styles.searchInput}
           />
-          <button onClick={() => searchWebsites(1)} style={styles.searchButton}>
-            Search
+          <button onClick={() => searchWebsites(1)} disabled={loading || autoScanning} style={{...styles.searchButton, opacity: loading || autoScanning ? 0.6 : 1}}>
+            {loading || autoScanning ? 'Searching...' : 'Search'}
           </button>
         </div>
+        
+        {/* Show extracted domain */}
+        {query && (
+          <div style={styles.domainHint}>
+            Searching for domain: <strong>{extractDomain(query) || '...'}</strong>
+          </div>
+        )}
 
         <div style={styles.filters}>
           <select value={filter} onChange={(e) => setFilter(e.target.value)} style={styles.select}>
@@ -299,14 +358,24 @@ const SearchPage = ({ onBack, onScanNew }) => {
         </div>
       )}
 
-      {!loading && query && results.length === 0 && (
+      {!loading && query && results.length === 0 && !autoScanning && (
         <div style={styles.notFoundState}>
           <div style={styles.emptyIcon}>😕</div>
           <h3 style={styles.emptyTitle}>No websites found</h3>
-          <p style={styles.emptyText}>We couldn't find "{query}" in our database</p>
+          <p style={styles.emptyText}>We couldn't find "{extractDomain(query)}" in our database</p>
+          <p style={styles.emptySubtext}>Tried to auto-scan but failed. You can try manually:</p>
           <button onClick={() => setShowScanModal(true)} style={styles.scanNewButton}>
             + Scan This Website
           </button>
+        </div>
+      )}
+
+      {/* Auto-scanning indicator */}
+      {autoScanning && (
+        <div style={styles.autoScanState}>
+          <div style={styles.scanSpinner}></div>
+          <h3 style={styles.emptyTitle}>Scanning {scannedDomain}...</h3>
+          <p style={styles.emptyText}>This domain wasn't in our database. Running a scan now...</p>
         </div>
       )}
 
@@ -440,6 +509,15 @@ const styles = {
       boxShadow: '0 10px 20px -10px rgba(56, 189, 248, 0.5)',
     }
   },
+  domainHint: {
+    fontSize: '0.85rem',
+    color: '#64748b',
+    marginBottom: '12px',
+    padding: '8px 12px',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    borderRadius: '8px',
+    border: '1px solid rgba(56, 189, 248, 0.2)',
+  },
   filters: {
     display: 'flex',
     gap: '12px',
@@ -477,6 +555,27 @@ const styles = {
     backgroundColor: 'rgba(30, 41, 59, 0.4)',
     borderRadius: '24px',
     border: '1px dashed rgba(255,255,255,0.1)',
+  },
+  autoScanState: {
+    textAlign: 'center',
+    padding: '60px 20px',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    borderRadius: '24px',
+    border: '1px dashed rgba(56, 189, 248, 0.3)',
+  },
+  scanSpinner: {
+    width: '48px',
+    height: '48px',
+    border: '4px solid rgba(56, 189, 248, 0.2)',
+    borderTop: '4px solid #38bdf8',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+    margin: '0 auto 20px',
+  },
+  emptySubtext: {
+    color: '#94a3b8',
+    fontSize: '0.9rem',
+    marginBottom: '16px',
   },
   emptyIcon: {
     fontSize: '4rem',

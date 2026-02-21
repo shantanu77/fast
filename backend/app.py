@@ -240,17 +240,20 @@ def kids_safety_check():
 # ==================== V2: BROWSER-BASED SCAN ====================
 
 @app.route('/api/scan-v2', methods=['POST'])
-def scan_url_v2():
+def scan_url_v2(provided_url=None):
     """V2 Scan endpoint using browser automation for accurate results."""
-    data = request.json
-    url = data.get('url', '').strip()
+    if provided_url:
+        url = provided_url
+    else:
+        data = request.json
+        url = data.get('url', '').strip()
     
     if not url:
         return jsonify({"error": "URL is required"}), 400
 
     # Normalize URL
     url = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
-    domain = url.split('/')[0].split('?')[0].split('#')[0]
+    domain = extract_domain(url)
     
     if '.' not in domain or ' ' in domain:
         return jsonify({"error": "Invalid domain format. Please enter a valid URL (e.g., google.com)"}), 400
@@ -478,12 +481,26 @@ def check_safety(url: str, scan_result: dict) -> tuple:
     return is_safe, safety_reasons
 
 
+def extract_domain(url):
+    """Extract clean domain from URL (no protocol, no path, no query params)."""
+    if not url:
+        return ''
+    # Remove protocol
+    url = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
+    # Remove www.
+    url = re.sub(r'^www\.', '', url, flags=re.IGNORECASE)
+    # Get domain (everything before / or ? or #)
+    domain = url.split('/')[0].split('?')[0].split('#')[0].lower()
+    return domain
+
 # ==================== V2: WEBSITE SEARCH ====================
 
 @app.route('/api/websites/search', methods=['GET'])
 def search_websites():
-    """Search for websites in the database."""
-    query = request.args.get('q', '').strip().lower()
+    """Search for websites in the database by domain only."""
+    raw_query = request.args.get('q', '').strip()
+    # Extract domain from query (handles URLs with paths/params)
+    query = extract_domain(raw_query)
     filter_by = request.args.get('filter', 'all')  # all, safe, unsafe, recent
     sort_by = request.args.get('sort', 'recent')  # recent, score, name
     page = int(request.args.get('page', 1))
@@ -493,9 +510,10 @@ def search_websites():
         # Build query
         base_query = ScanRecord.query.filter(ScanRecord.url != None)
         
-        # Apply search filter
+        # Apply search filter - search by domain only
         if query:
-            base_query = base_query.filter(ScanRecord.url.ilike(f'%{query}%'))
+            # Match URLs that contain this domain
+            base_query = base_query.filter(ScanRecord.url.ilike(f'%//{query}%'))
         
         # Apply safety filter
         if filter_by == 'safe':
@@ -552,22 +570,42 @@ def search_websites():
 def scan_new_website():
     """Scan a new website and add it to the database."""
     data = request.json
-    url = data.get('url', '').strip()
+    raw_url = data.get('url', '').strip()
     
-    if not url:
+    if not raw_url:
         return jsonify({"error": "URL is required"}), 400
     
-    # Check if already exists
-    existing = ScanRecord.query.filter(ScanRecord.url.ilike(f'%{url}%')).first()
+    # Extract clean domain for scanning
+    domain = extract_domain(raw_url)
+    if not domain:
+        return jsonify({"error": "Invalid URL format"}), 400
+    
+    # Use domain only for scanning (add https://)
+    url = f'https://{domain}'
+    
+    # Check if domain already exists in database
+    existing = ScanRecord.query.filter(ScanRecord.url.ilike(f'%//{domain}%')).first()
     if existing:
         return jsonify({
             "exists": True,
             "message": "Website already in database",
-            "scan_id": existing.id
+            "scan_id": existing.id,
+            "domain": domain,
+            "url": existing.url
         }), 200
     
-    # Run V2 scan
-    return scan_url_v2()
+    # Run V2 scan with clean domain URL
+    result = scan_url_v2(url)
+    
+    # Add domain info to response
+    if isinstance(result, tuple):
+        response_data, status_code = result
+        if status_code == 200:
+            data = response_data.get_json()
+            data['domain'] = domain
+            data['scanned_url'] = url
+            return jsonify(data), status_code
+    return result
 
 
 # ==================== LEGACY ENDPOINTS (Deprecated) ====================
