@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import SearchPage from './SearchPage';
 
 function App() {
   const [url, setUrl] = useState('');
@@ -58,6 +59,9 @@ function App() {
   const [isPinVerified, setIsPinVerified] = useState(false);
   const [lockMessage, setLockMessage] = useState('');
   const [pinError, setPinError] = useState('');
+  
+  // V2: Search Page
+  const [showSearchPage, setShowSearchPage] = useState(false);
 
   // Premium Click Sound - satisfying tech click
   const playClick = () => {
@@ -354,6 +358,37 @@ function App() {
     return validScans.sort((a, b) => b.timestamp - a.timestamp)[0].score;
   };
 
+  // V2: Get latest kids safety rating for a group
+  const getLatestKidsSafety = (scans) => {
+    const validScans = scans.filter(s => s.kids_safety_rating);
+    if (validScans.length === 0) return null;
+    return validScans.sort((a, b) => b.timestamp - a.timestamp)[0];
+  };
+
+  // V2: Get safety color
+  const getSafetyColor = (rating) => {
+    switch (rating) {
+      case 'SAFE_FOR_ALL': return '#22c55e';
+      case 'PARENTAL_GUIDANCE': return '#84cc16';
+      case 'TEEN': return '#eab308';
+      case 'MATURE': return '#f97316';
+      case 'BLOCKED': return '#ef4444';
+      default: return '#6b7280';
+    }
+  };
+
+  // V2: Get safety emoji
+  const getSafetyEmoji = (rating) => {
+    switch (rating) {
+      case 'SAFE_FOR_ALL': return '👶';
+      case 'PARENTAL_GUIDANCE': return '👪';
+      case 'TEEN': return '🧑';
+      case 'MATURE': return '🔞';
+      case 'BLOCKED': return '🚫';
+      default: return '❓';
+    }
+  };
+
   // Get latest scan time for a group
   const getLatestTime = (scans) => {
     if (scans.length === 0) return null;
@@ -438,7 +473,8 @@ function App() {
 
     playLaunchSound();
     try {
-      const response = await fetch('/api/scan', {
+      // V2: Use browser-based scan endpoint
+      const response = await fetch('/api/scan-v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: finalUrl }),
@@ -568,6 +604,11 @@ function App() {
     }
   };
 
+  // V2: Show Search Page
+  if (showSearchPage) {
+    return <SearchPage onBack={() => setShowSearchPage(false)} />;
+  }
+
   return (
     <div style={styles.container}>
       <header style={styles.header}>
@@ -626,6 +667,32 @@ function App() {
             </div>
 
             <div style={styles.resultGrid}>
+              {/* V2: Kids Safety Card */}
+              {result.kids_safety && (
+                <div style={{
+                  ...styles.card,
+                  borderColor: result.kids_safety.display?.color || '#6b7280',
+                  borderWidth: '2px',
+                }} className="card-hover">
+                  <div style={styles.cardLabel}>👶 Safe for Kids</div>
+                  <div style={{
+                    ...styles.cardValue,
+                    color: result.kids_safety.display?.color || '#6b7280',
+                    fontSize: '1.4rem',
+                  }}>
+                    {result.kids_safety.display?.emoji} {result.kids_safety.display?.label}
+                  </div>
+                  <div style={styles.cardSub}>
+                    Score: {result.kids_safety.score}/100 • {result.kids_safety.confidence} confidence
+                    {result.kids_safety.warnings?.length > 0 && (
+                      <div style={{ marginTop: '8px', color: '#fbbf24' }}>
+                        ⚠️ {result.kids_safety.warnings.length} warning(s)
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div style={styles.card} className="card-hover">
                 <div style={styles.cardLabel}>Performance Score</div>
                 <div style={styles.cardValue}>{Math.round(result.performance_score)}/100</div>
@@ -635,6 +702,23 @@ function App() {
               <ResultCard label="Load Time" value={`${result.load_time_ms} ms`} sub="Total response time" />
               <ResultCard label="Page Size" value={`${(result.content_length / 1024).toFixed(2)} KB`} sub="Payload size" />
               <ResultCard label="Status" value={result.status} sub="HTTP response code" />
+              
+              {/* V2: Scan Method Badge */}
+              <div style={styles.card} className="card-hover">
+                <div style={styles.cardLabel}>Scan Method</div>
+                <div style={{
+                  ...styles.cardValue,
+                  fontSize: '1.3rem',
+                  color: result.scan_method === 'browser' ? '#4ade80' : '#fbbf24',
+                }}>
+                  {result.scan_method === 'browser' ? '🌐 Browser' : '📡 Legacy'}
+                </div>
+                <div style={styles.cardSub}>
+                  {result.scan_method === 'browser' 
+                    ? 'Accurate browser-based analysis' 
+                    : 'Standard HTTP request scan'}
+                </div>
+              </div>
 
               <div style={styles.bugsSection}>
                 <h3 style={styles.sectionTitle}>Detected Issues / Bugs</h3>
@@ -736,8 +820,20 @@ function App() {
         {recentScans.length > 0 && (
           <section style={styles.historySection}>
             <div style={styles.historyHeader}>
-              <h3 style={styles.historyTitle}>Global Scan History</h3>
-              <p style={styles.historySubtitle}>Click a website to view its scan history</p>
+              <div style={styles.historyHeaderRow}>
+                <div>
+                  <h3 style={styles.historyTitle}>Global Scan History</h3>
+                  <p style={styles.historySubtitle}>Click a website to view its scan history</p>
+                </div>
+                {/* V2: More Button */}
+                <button 
+                  onClick={() => { playClick(); setShowSearchPage(true); }}
+                  onMouseEnter={playHoverSound}
+                  style={styles.moreButton}
+                >
+                  More →
+                </button>
+              </div>
             </div>
 
             {(() => {
@@ -755,6 +851,7 @@ function App() {
                         <tr>
                           <th style={styles.th}>Website</th>
                           <th style={styles.th}>Total Scans</th>
+                          <th style={styles.th}>Kids Safety</th>
                           <th style={styles.th}>Latest Grade</th>
                           <th style={styles.th}>Latest Score</th>
                           <th style={styles.th}>Last Scan</th>
@@ -789,6 +886,32 @@ function App() {
                                 </td>
                                 <td style={styles.td}>
                                   <span style={styles.scanCount}>{scans.length}</span>
+                                </td>
+                                {/* V2: Kids Safety Column */}
+                                <td style={styles.td}>
+                                  {(() => {
+                                    const latest = getLatestKidsSafety(scans);
+                                    if (!latest) return <span style={{ color: '#64748b' }}>-</span>;
+                                    return (
+                                      <span
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '6px',
+                                          padding: '4px 10px',
+                                          borderRadius: '20px',
+                                          fontSize: '0.75rem',
+                                          fontWeight: '600',
+                                          backgroundColor: getSafetyColor(latest.kids_safety_rating) + '20',
+                                          color: getSafetyColor(latest.kids_safety_rating),
+                                          border: `1px solid ${getSafetyColor(latest.kids_safety_rating)}40`,
+                                        }}
+                                        title={`Safety Score: ${latest.kids_safety_score}/100`}
+                                      >
+                                        {getSafetyEmoji(latest.kids_safety_rating)} {latest.kids_safety_rating?.replace(/_/g, ' ')}
+                                      </span>
+                                    );
+                                  })()}
                                 </td>
                                 <td style={styles.td}>
                                   {(() => {
@@ -1370,6 +1493,27 @@ const styles = {
     fontSize: '0.9rem',
     color: '#64748b',
     margin: 0,
+  },
+  historyHeaderRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '24px',
+  },
+  moreButton: {
+    padding: '10px 20px',
+    borderRadius: '12px',
+    border: '1px solid rgba(56, 189, 248, 0.3)',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    color: '#38bdf8',
+    fontWeight: '600',
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    ':hover': {
+      backgroundColor: 'rgba(56, 189, 248, 0.2)',
+      transform: 'translateY(-2px)',
+    }
   },
   tableWrapper: {
     overflowX: 'auto',
