@@ -35,6 +35,9 @@ CORS(app)
 # User Tracking for "Live Users"
 active_users = {} # {ip: last_activity_timestamp}
 
+# Unique visitors tracking (persisted in memory, could be moved to DB)
+unique_visitors = set()  # Set of unique IPs
+
 # Admin PIN Security System
 ADMIN_PIN = '2026110507713e5ngaashvath'
 
@@ -50,6 +53,8 @@ def track_user():
     if request.path.startswith('/api'):
         ip = request.headers.get('X-Forwarded-For', request.remote_addr)
         active_users[ip] = time.time()
+        # Track unique visitors
+        unique_visitors.add(ip)
 
 import urllib.parse
 
@@ -240,13 +245,20 @@ def kids_safety_check():
 # ==================== V2: BROWSER-BASED SCAN ====================
 
 @app.route('/api/scan-v2', methods=['POST'])
-def scan_url_v2(provided_url=None):
+def scan_url_v2(provided_url=None, provided_visitor_name=None):
     """V2 Scan endpoint using browser automation for accurate results."""
+    data = request.json if request else None
+    
     if provided_url:
         url = provided_url
+        visitor_name = provided_visitor_name
     else:
-        data = request.json
-        url = data.get('url', '').strip()
+        url = data.get('url', '').strip() if data else ''
+        visitor_name = data.get('visitor_name', '').strip() if data else None
+    
+    # Generate random name if none provided
+    if not visitor_name:
+        visitor_name = generate_random_name()
     
     if not url:
         return jsonify({"error": "URL is required"}), 400
@@ -331,6 +343,7 @@ def scan_url_v2(provided_url=None):
             grade=grade,
             load_time=load_time,
             status_code=scan_result['status_code'],
+            visitor_name=visitor_name,
             scan_method=scan_result.get('scan_method', 'legacy'),
             kids_safety_rating=kids_safety.get('rating') if kids_safety else 'UNKNOWN',
             kids_safety_score=kids_safety.get('score') if kids_safety else 50,
@@ -867,12 +880,50 @@ def reset_ratings():
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+
+@app.route('/api/cleanup-data', methods=['POST'])
+def cleanup_data():
+    """Clean up old and junk data from the database."""
+    try:
+        from datetime import datetime, timedelta
+        
+        # Delete scans older than 90 days (optional, adjust as needed)
+        # cutoff_time = time.time() - (90 * 24 * 3600)
+        # old_scans = ScanRecord.query.filter(ScanRecord.timestamp < cutoff_time).delete()
+        
+        # Delete scans with invalid URLs or error status
+        junk_scans = ScanRecord.query.filter(
+            db.or_(
+                ScanRecord.url == None,
+                ScanRecord.url == '',
+                ScanRecord.url == 'General Feedback',
+                ScanRecord.status_code >= 500
+            )
+        ).delete(synchronize_session=False)
+        
+        # Delete very old feedback (older than 180 days)
+        feedback_cutoff = time.time() - (180 * 24 * 3600)
+        old_feedback = Feedback.query.filter(Feedback.timestamp < feedback_cutoff).delete(synchronize_session=False)
+        
+        db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": "Data cleanup completed",
+            "junk_scans_deleted": junk_scans,
+            "old_feedback_deleted": old_feedback
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     try:
-        cutoff = time.time() - 300
+        cutoff = time.time() - 300  # 5 minutes for live users
         live_ips = [ip for ip, last_time in active_users.items() if last_time > cutoff]
         
+        # Clean up old entries (older than 1 hour)
         for ip in list(active_users.keys()):
             if active_users[ip] < cutoff - 3600:
                 active_users.pop(ip, None)
@@ -883,8 +934,9 @@ def get_stats():
         avg_rating = float(f"{avg_rating:.1f}")
 
         return jsonify({
-            "live_users": len(live_ips) + random.randint(1, 3),
-            "total_users": total_scans + 125,
+            "live_users": len(live_ips),  # Actual live users, no random offset
+            "total_unique_visitors": len(unique_visitors),  # Total unique visitors
+            "total_users": total_scans,  # Total scans (actual count, no offset)
             "total_reviews": total_reviews,
             "average_rating": avg_rating,
             "v2_features": {

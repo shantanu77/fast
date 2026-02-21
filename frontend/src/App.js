@@ -30,7 +30,7 @@ function App() {
   });
   const [selectedStars, setSelectedStars] = useState(0);
   const [visitorName, setVisitorName] = useState('');
-  const [stats, setStats] = useState({ live_users: 0, total_users: 0, total_reviews: 0 });
+  const [stats, setStats] = useState({ live_users: 0, total_unique_visitors: 0, total_users: 0, total_reviews: 0 });
   const [captcha, setCaptcha] = useState({ id: null, question: '' });
   const [captchaAnswer, setCaptchaAnswer] = useState('');
   
@@ -62,6 +62,11 @@ function App() {
   
   // V2: Search Page
   const [showSearchPage, setShowSearchPage] = useState(false);
+  
+  // Visitor name for scan
+  const [scanVisitorName, setScanVisitorName] = useState('');
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [pendingScanUrl, setPendingScanUrl] = useState('');
 
   // Premium Click Sound - satisfying tech click
   const playClick = () => {
@@ -438,6 +443,17 @@ function App() {
 
     const finalUrl = 'https://' + inputUrl;
     
+    // Show name modal first
+    setPendingScanUrl(finalUrl);
+    setScanVisitorName(generateRandomName());
+    setShowNameModal(true);
+  };
+  
+  const proceedWithNameAndScan = async () => {
+    setShowNameModal(false);
+    const finalUrl = pendingScanUrl;
+    const visitorName = scanVisitorName.trim() || generateRandomName();
+    
     // Kids Safe: Check content safety first
     setLoading(true);
     try {
@@ -452,20 +468,23 @@ function App() {
         // Show Kids Safe warning modal
         setKidsSafeData(safetyData);
         setPendingUrl(finalUrl);
+        setPendingVisitorName(visitorName);
         setShowKidsSafeModal(true);
         setLoading(false);
         return;
       }
     } catch (err) {
       console.error("Failed to check content safety:", err);
-      // Continue with scan if safety check fails
     }
-
-    // No warning or safety check failed, proceed with scan
-    await proceedWithScan(finalUrl);
+    
+    // No warning, proceed with scan
+    await proceedWithScan(finalUrl, visitorName);
   };
   
-  const proceedWithScan = async (finalUrl) => {
+  // Store visitor name for kids safe modal continuation
+  const [pendingVisitorName, setPendingVisitorName] = useState('');
+  
+  const proceedWithScan = async (finalUrl, visitorName = '') => {
     setLoading(true);
     setError(null);
     setResult(null);
@@ -477,7 +496,10 @@ function App() {
       const response = await fetch('/api/scan-v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: finalUrl }),
+        body: JSON.stringify({ 
+          url: finalUrl,
+          visitor_name: visitorName || generateRandomName()
+        }),
       });
 
       const data = await response.json();
@@ -622,6 +644,10 @@ function App() {
           <div style={styles.statChip}>
             <span style={{ ...styles.statDot, backgroundColor: '#4ade80' }}></span>
             <strong>{stats.live_users}</strong> Live Users
+          </div>
+          <div style={styles.statChip}>
+            <span style={{ ...styles.statDot, backgroundColor: '#a855f7' }}></span>
+            <strong>{stats.total_unique_visitors || 0}</strong> Unique Visitors
           </div>
           <div style={styles.statChip}>
             <span style={{ ...styles.statDot, backgroundColor: '#38bdf8' }}></span>
@@ -1335,12 +1361,50 @@ function App() {
                 <button 
                   onClick={() => { 
                     playClick(); 
-                    proceedWithScan(pendingUrl);
+                    proceedWithScan(pendingUrl, pendingVisitorName);
                   }} 
                   onMouseEnter={playHoverSound}
                   style={styles.kidsSafeProceedBtn}
                 >
                   ⚠️ Yes, Proceed Anyway
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Name Input Modal - Before Scan */}
+        {showNameModal && (
+          <div style={styles.nameModalOverlay}>
+            <div style={styles.nameModal}>
+              <div style={styles.nameModalIcon}>👋</div>
+              <h2 style={styles.nameModalTitle}>Who's Scanning?</h2>
+              <p style={styles.nameModalText}>
+                Enter your name for this scan, or we'll generate a fun random name for you!
+              </p>
+              <input
+                type="text"
+                placeholder={scanVisitorName}
+                value={scanVisitorName}
+                onChange={(e) => setScanVisitorName(e.target.value)}
+                style={styles.nameModalInput}
+                onKeyPress={(e) => e.key === 'Enter' && proceedWithNameAndScan()}
+              />
+              <div style={styles.nameModalHint}>
+                💡 Press Enter or click Continue to start scanning
+              </div>
+              <div style={styles.nameModalActions}>
+                <button 
+                  onClick={() => { playClick(); setShowNameModal(false); setPendingScanUrl(''); }} 
+                  style={styles.nameModalCancel}
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => { playClick(); proceedWithNameAndScan(); }} 
+                  style={styles.nameModalConfirm}
+                >
+                  Continue Scan 🚀
                 </button>
               </div>
             </div>
@@ -2389,7 +2453,93 @@ const styles = {
       transform: 'translateY(-2px) scale(1.01)',
       boxShadow: '0 8px 20px -5px rgba(239, 68, 68, 0.4)',
     },
-  }
+  },
+  // Name Modal Styles
+  nameModalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(2, 6, 23, 0.9)',
+    backdropFilter: 'blur(8px)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2500,
+    padding: '20px',
+  },
+  nameModal: {
+    backgroundColor: '#1e293b',
+    padding: '40px',
+    borderRadius: '24px',
+    maxWidth: '450px',
+    width: '100%',
+    textAlign: 'center',
+    border: '1px solid rgba(56, 189, 248, 0.3)',
+    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+  },
+  nameModalIcon: {
+    fontSize: '3.5rem',
+    marginBottom: '16px',
+  },
+  nameModalTitle: {
+    fontSize: '1.5rem',
+    fontWeight: '800',
+    marginBottom: '12px',
+    color: '#f8fafc',
+  },
+  nameModalText: {
+    color: '#94a3b8',
+    marginBottom: '24px',
+    fontSize: '1rem',
+  },
+  nameModalInput: {
+    width: '100%',
+    padding: '16px 20px',
+    borderRadius: '12px',
+    border: '1px solid rgba(56, 189, 248, 0.3)',
+    backgroundColor: '#0f172a',
+    color: '#f8fafc',
+    fontSize: '1rem',
+    marginBottom: '12px',
+    outline: 'none',
+    textAlign: 'center',
+    boxSizing: 'border-box',
+  },
+  nameModalHint: {
+    color: '#64748b',
+    fontSize: '0.8rem',
+    marginBottom: '24px',
+    fontStyle: 'italic',
+  },
+  nameModalActions: {
+    display: 'flex',
+    gap: '12px',
+  },
+  nameModalCancel: {
+    flex: 1,
+    padding: '14px 20px',
+    borderRadius: '12px',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'transparent',
+    color: '#94a3b8',
+    cursor: 'pointer',
+    fontSize: '0.95rem',
+    transition: 'all 0.2s',
+  },
+  nameModalConfirm: {
+    flex: 1,
+    padding: '14px 20px',
+    borderRadius: '12px',
+    border: 'none',
+    background: 'linear-gradient(135deg, #38bdf8 0%, #818cf8 100%)',
+    color: '#0f172a',
+    fontWeight: '700',
+    cursor: 'pointer',
+    fontSize: '0.95rem',
+    transition: 'all 0.2s',
+  },
 };
 
 export default App;
