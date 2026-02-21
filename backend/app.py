@@ -108,13 +108,14 @@ class ScanRecord(db.Model):
     page_weight_bytes = db.Column(db.Integer)
 
     def __init__(self, url=None, performance_score=None, grade=None, load_time=None, status_code=None,
-                 scan_method='legacy', kids_safety_rating=None, kids_safety_score=None,
+                 visitor_name=None, scan_method='legacy', kids_safety_rating=None, kids_safety_score=None,
                  kids_safety_sources=None, kids_safety_warnings=None, **kwargs):
         self.url = url
         self.performance_score = performance_score
         self.grade = grade
         self.load_time = load_time
         self.status_code = status_code
+        self.visitor_name = visitor_name
         self.timestamp = time.time()
         self.scan_method = scan_method
         self.kids_safety_rating = kids_safety_rating
@@ -247,7 +248,7 @@ def kids_safety_check():
 @app.route('/api/scan-v2', methods=['POST'])
 def scan_url_v2(provided_url=None, provided_visitor_name=None):
     """V2 Scan endpoint using browser automation for accurate results."""
-    data = request.json if request else None
+    data = request.get_json() if request else None
     
     if provided_url:
         url = provided_url
@@ -255,6 +256,8 @@ def scan_url_v2(provided_url=None, provided_visitor_name=None):
     else:
         url = data.get('url', '').strip() if data else ''
         visitor_name = data.get('visitor_name', '').strip() if data else None
+    
+
     
     # Generate random name if none provided
     if not visitor_name:
