@@ -1,15 +1,30 @@
 import React, { useState, useEffect } from 'react';
 
 // Helper to extract domain from any URL format
-const extractDomain = (url) => {
+// Normalizes www and non-www to be the same (but keeps subdomains like xy.abc.com)
+const extractDomain = (url, keepWww = false) => {
   if (!url) return '';
   // Remove protocol
   let domain = url.replace(/^https?:\/\//i, '');
-  // Remove www.
-  domain = domain.replace(/^www\./i, '');
   // Get domain only (before /, ?, or #)
   domain = domain.split('/')[0].split('?')[0].split('#')[0];
+  // Remove www. prefix for normalization (treat www.abc.com same as abc.com)
+  if (!keepWww) {
+    domain = domain.replace(/^www\./i, '');
+  }
   return domain.toLowerCase();
+};
+
+// Get domain variants for searching (www and non-www)
+const getDomainVariants = (domain) => {
+  domain = domain.toLowerCase();
+  const variants = [domain];
+  if (domain.startsWith('www.')) {
+    variants.push(domain.replace(/^www\./i, ''));
+  } else {
+    variants.push(`www.${domain}`);
+  }
+  return variants;
 };
 
 const SearchPage = ({ onBack, onScanNew }) => {

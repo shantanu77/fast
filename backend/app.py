@@ -481,26 +481,45 @@ def check_safety(url: str, scan_result: dict) -> tuple:
     return is_safe, safety_reasons
 
 
-def extract_domain(url):
-    """Extract clean domain from URL (no protocol, no path, no query params)."""
+def extract_domain(url, normalize_www=True):
+    """Extract clean domain from URL (no protocol, no path, no query params).
+    
+    If normalize_www=True, removes www. prefix so www.abc.com and abc.com are treated as same.
+    Subdomains like xy.abc.com are kept distinct.
+    """
     if not url:
         return ''
     # Remove protocol
     url = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
-    # Remove www.
-    url = re.sub(r'^www\.', '', url, flags=re.IGNORECASE)
     # Get domain (everything before / or ? or #)
     domain = url.split('/')[0].split('?')[0].split('#')[0].lower()
+    # Remove www. prefix for normalization (but keep other subdomains)
+    if normalize_www:
+        domain = re.sub(r'^www\.', '', domain, flags=re.IGNORECASE)
     return domain
+
+
+def get_domain_variants(domain):
+    """Get both www and non-www variants of a domain for searching."""
+    domain = domain.lower()
+    variants = [domain]
+    if domain.startswith('www.'):
+        variants.append(domain[4:])  # without www
+    else:
+        variants.append(f'www.{domain}')  # with www
+    return variants
 
 # ==================== V2: WEBSITE SEARCH ====================
 
 @app.route('/api/websites/search', methods=['GET'])
 def search_websites():
-    """Search for websites in the database by domain only."""
+    """Search for websites in the database by domain only (www and non-www treated same)."""
     raw_query = request.args.get('q', '').strip()
-    # Extract domain from query (handles URLs with paths/params)
-    query = extract_domain(raw_query)
+    # Extract normalized domain (without www) from query
+    normalized_domain = extract_domain(raw_query, normalize_www=True)
+    # Get all variants for searching (with and without www)
+    domain_variants = get_domain_variants(normalized_domain)
+    
     filter_by = request.args.get('filter', 'all')  # all, safe, unsafe, recent
     sort_by = request.args.get('sort', 'recent')  # recent, score, name
     page = int(request.args.get('page', 1))
@@ -510,10 +529,13 @@ def search_websites():
         # Build query
         base_query = ScanRecord.query.filter(ScanRecord.url != None)
         
-        # Apply search filter - search by domain only
-        if query:
-            # Match URLs that contain this domain
-            base_query = base_query.filter(ScanRecord.url.ilike(f'%//{query}%'))
+        # Apply search filter - search by any domain variant (www and non-www)
+        if normalized_domain:
+            # Create OR condition for all domain variants
+            from sqlalchemy import or_
+            domain_conditions = [ScanRecord.url.ilike(f'%//{variant}%') for variant in domain_variants]
+            domain_conditions.extend([ScanRecord.url.ilike(f'%//www.{variant}%') for variant in domain_variants if not variant.startswith('www.')])
+            base_query = base_query.filter(or_(*domain_conditions))
         
         # Apply safety filter
         if filter_by == 'safe':
@@ -569,32 +591,39 @@ def search_websites():
 @app.route('/api/websites/scan-new', methods=['POST'])
 def scan_new_website():
     """Scan a new website and add it to the database."""
+    from sqlalchemy import or_
     data = request.json
     raw_url = data.get('url', '').strip()
     
     if not raw_url:
         return jsonify({"error": "URL is required"}), 400
     
-    # Extract clean domain for scanning
-    domain = extract_domain(raw_url)
-    if not domain:
+    # Extract normalized domain for scanning (without www)
+    normalized_domain = extract_domain(raw_url, normalize_www=True)
+    if not normalized_domain:
         return jsonify({"error": "Invalid URL format"}), 400
     
-    # Use domain only for scanning (add https://)
-    url = f'https://{domain}'
+    # Get domain variants to check for existing
+    domain_variants = get_domain_variants(normalized_domain)
     
-    # Check if domain already exists in database
-    existing = ScanRecord.query.filter(ScanRecord.url.ilike(f'%//{domain}%')).first()
+    # Use https:// with normalized domain (no www) for scanning
+    url = f'https://{normalized_domain}'
+    
+    # Check if any variant of this domain already exists in database
+    existing_conditions = [ScanRecord.url.ilike(f'%//{variant}%') for variant in domain_variants]
+    existing_conditions.extend([ScanRecord.url.ilike(f'%//www.{variant}%') for variant in domain_variants if not variant.startswith('www.')])
+    existing = ScanRecord.query.filter(or_(*existing_conditions)).first()
+    
     if existing:
         return jsonify({
             "exists": True,
             "message": "Website already in database",
             "scan_id": existing.id,
-            "domain": domain,
+            "domain": normalized_domain,
             "url": existing.url
         }), 200
     
-    # Run V2 scan with clean domain URL
+    # Run V2 scan with normalized domain URL
     result = scan_url_v2(url)
     
     # Add domain info to response
