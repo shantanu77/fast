@@ -635,18 +635,32 @@ function App() {
       </header>
 
       <main style={styles.main}>
-        <form onSubmit={handleScan} className="animate-fade-in" style={{ ...styles.form, animationDelay: '0.3s' }}>
+        {/* Loading Overlay */}
+        {loading && (
+          <div style={styles.loadingOverlay}>
+            <div style={styles.loadingSpinner}></div>
+            <p style={styles.loadingText}>Scanning website...</p>
+          </div>
+        )}
+        
+        <form onSubmit={handleScan} className="animate-fade-in" style={{ ...styles.form, animationDelay: '0.3s', opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>
           <div style={styles.inputWrapper}>
             <input
               type="text"
               placeholder="Enter website URL (e.g. google.com)"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              style={styles.input}
+              disabled={loading}
+              style={{...styles.input, opacity: loading ? 0.7 : 1}}
             />
           </div>
-          <button type="submit" disabled={loading} style={styles.button}>
-            {loading ? 'Analyzing...' : 'Launch Scan 🚀'}
+          <button type="submit" disabled={loading} style={{...styles.button, cursor: loading ? 'not-allowed' : 'pointer'}}>
+            {loading ? (
+              <span style={{display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center'}}>
+                <span style={styles.buttonSpinner}></span>
+                Analyzing...
+              </span>
+            ) : 'Launch Scan 🚀'}
           </button>
         </form>
 
@@ -1448,6 +1462,46 @@ const styles = {
     whiteSpace: 'nowrap',
     textTransform: 'uppercase',
     letterSpacing: '0.025em',
+  },
+  // Loading Overlay Styles
+  loadingOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(2, 6, 23, 0.85)',
+    backdropFilter: 'blur(8px)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 9999,
+    animation: 'fadeIn 0.3s ease-out',
+  },
+  loadingSpinner: {
+    width: '60px',
+    height: '60px',
+    border: '4px solid rgba(56, 189, 248, 0.1)',
+    borderTop: '4px solid #38bdf8',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+    marginBottom: '20px',
+  },
+  loadingText: {
+    color: '#f8fafc',
+    fontSize: '1.2rem',
+    fontWeight: '600',
+    animation: 'pulse 1.5s ease-in-out infinite',
+  },
+  buttonSpinner: {
+    display: 'inline-block',
+    width: '16px',
+    height: '16px',
+    border: '2px solid rgba(15, 23, 42, 0.3)',
+    borderTop: '2px solid #0f172a',
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite',
   },
   errorCard: {
     backgroundColor: '#451a1a',
