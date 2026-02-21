@@ -239,6 +239,14 @@ button:active::after {
   height: 200%;
 }
 
+/* VR Promo Card Hover */
+a[href*="youtube.com/@Aashvathvrfun"] > div:hover {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 12px 30px -10px rgba(239, 68, 68, 0.4);
+  border-color: rgba(239, 68, 68, 0.6);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.15) 100%);
+}
+
 /* Specific button type enhancements */
 button[style*="saveBtn"],
 button[style*="pinVerifyBtn"],

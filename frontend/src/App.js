@@ -767,6 +767,25 @@ function App() {
                 </div>
               </div>
 
+              {/* VR YouTube Channel Promo */}
+              <a 
+                href="https://www.youtube.com/@Aashvathvrfun" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                style={styles.vrPromoLink}
+              >
+                <div style={styles.vrPromoCard}>
+                  <div style={styles.vrPromoIcon}>🎮</div>
+                  <div style={styles.vrPromoContent}>
+                    <h4 style={styles.vrPromoTitle}>🚀 Check Out My VR Channel!</h4>
+                    <p style={styles.vrPromoText}>
+                      Watch latest VR features, gameplay & tech reviews on <strong>@Aashvathvrfun</strong>
+                    </p>
+                    <span style={styles.vrPromoCta}>View & Subscribe →</span>
+                  </div>
+                </div>
+              </a>
+
               <div style={styles.ratingBox}>
                 <p style={styles.ratingTitle}>
                   {ratingStatus.is_locked ? '🔒 Rating Locked' : 
@@ -2003,6 +2022,50 @@ const styles = {
     textAlign: 'center',
     paddingTop: '24px',
     borderTop: '1px solid rgba(255, 255, 255, 0.05)',
+  },
+  vrPromoLink: {
+    textDecoration: 'none',
+    display: 'block',
+    marginTop: '20px',
+    marginBottom: '20px',
+  },
+  vrPromoCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    padding: '20px',
+    background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(185, 28, 28, 0.1) 100%)',
+    borderRadius: '16px',
+    border: '1px solid rgba(239, 68, 68, 0.3)',
+    transition: 'all 0.3s ease',
+    cursor: 'pointer',
+  },
+  vrPromoIcon: {
+    fontSize: '2.5rem',
+    flexShrink: 0,
+  },
+  vrPromoContent: {
+    flex: 1,
+  },
+  vrPromoTitle: {
+    margin: '0 0 8px 0',
+    fontSize: '1rem',
+    fontWeight: '700',
+    color: '#f8fafc',
+  },
+  vrPromoText: {
+    margin: '0 0 8px 0',
+    fontSize: '0.9rem',
+    color: '#cbd5e1',
+    lineHeight: 1.4,
+  },
+  vrPromoCta: {
+    display: 'inline-block',
+    fontSize: '0.85rem',
+    fontWeight: '700',
+    color: '#ef4444',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
   },
   ratingTitle: {
     fontSize: '0.85rem',
