@@ -38,6 +38,9 @@ active_users = {} # {ip: last_activity_timestamp}
 # Unique visitors tracking (persisted in memory, could be moved to DB)
 unique_visitors = set()  # Set of unique IPs
 
+# V2: Device usage tracking
+device_usage = {"laptop": 0, "ipad": 0, "phone": 0}
+
 # Admin PIN Security System
 ADMIN_PIN = '2026110507713e5ngaashvath'
 
@@ -187,6 +190,20 @@ def health():
         "browser_scan_available": BROWSER_SCAN_AVAILABLE,
         "kids_safety_available": KIDS_SAFETY_AVAILABLE
     })
+
+# ==================== V2: DEVICE TRACKING ====================
+
+@app.route('/api/set-device', methods=['POST'])
+def set_device():
+    """Track user device type selection."""
+    data = request.json
+    device = data.get('device_type', '').lower()
+    
+    if device in device_usage:
+        device_usage[device] += 1
+        return jsonify({"success": True, "counts": device_usage})
+    
+    return jsonify({"error": "Invalid device type"}), 400
 
 # ==================== V2: KIDS SAFETY ENDPOINTS ====================
 
@@ -942,6 +959,7 @@ def get_stats():
             "total_users": total_scans,  # Total scans (actual count, no offset)
             "total_reviews": total_reviews,
             "average_rating": avg_rating,
+            "device_usage": device_usage,
             "v2_features": {
                 "browser_scan": BROWSER_SCAN_AVAILABLE,
                 "kids_safety": KIDS_SAFETY_AVAILABLE

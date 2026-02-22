@@ -33,17 +33,17 @@ function App() {
   const [stats, setStats] = useState({ live_users: 0, total_unique_visitors: 0, total_users: 0, total_reviews: 0 });
   const [captcha, setCaptcha] = useState({ id: null, question: '' });
   const [captchaAnswer, setCaptchaAnswer] = useState('');
-  
+
   // PIN-based security system - everyone gets 1 free rating, then needs PIN (3 attempts)
-  const [ratingStatus, setRatingStatus] = useState({ 
-    can_rate: true, 
-    needs_pin: false, 
-    is_locked: false, 
+  const [ratingStatus, setRatingStatus] = useState({
+    can_rate: true,
+    needs_pin: false,
+    is_locked: false,
     rating_count: 0,
     pin_attempts: 0,
     pin_attempts_remaining: 3
   });
-  
+
   // Kids Safe - 18+ Content Warning
   const [showKidsSafeModal, setShowKidsSafeModal] = useState(false);
   const [kidsSafeData, setKidsSafeData] = useState({
@@ -59,10 +59,26 @@ function App() {
   const [isPinVerified, setIsPinVerified] = useState(false);
   const [lockMessage, setLockMessage] = useState('');
   const [pinError, setPinError] = useState('');
-  
+
   // V2: Search Page
   const [showSearchPage, setShowSearchPage] = useState(false);
-  
+
+  // V2: Device Selection
+  const [deviceType, setDeviceType] = useState(localStorage.getItem('fast_scanner_device') || null);
+
+  const reportDeviceSelection = async (type) => {
+    try {
+      await fetch('/api/set-device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device_type: type })
+      });
+      fetchStats(); // Refresh stats to show new counts
+    } catch (err) {
+      console.error("Failed to report device selection", err);
+    }
+  };
+
   // Visitor name for scan
   const [scanVisitorName, setScanVisitorName] = useState('');
   const [showNameModal, setShowNameModal] = useState(false);
@@ -72,7 +88,7 @@ function App() {
   const playClick = () => {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      
+
       // Primary click - crisp high tone
       const osc1 = audioCtx.createOscillator();
       const gain1 = audioCtx.createGain();
@@ -85,7 +101,7 @@ function App() {
       gain1.connect(audioCtx.destination);
       osc1.start();
       osc1.stop(audioCtx.currentTime + 0.08);
-      
+
       // Secondary click - deeper confirmation
       const osc2 = audioCtx.createOscillator();
       const gain2 = audioCtx.createGain();
@@ -99,30 +115,30 @@ function App() {
       gain2.connect(audioCtx.destination);
       osc2.start(audioCtx.currentTime + 0.02);
       osc2.stop(audioCtx.currentTime + 0.1);
-      
+
       setTimeout(() => audioCtx.close(), 200);
     } catch (e) {
       console.error("Audio failed", e);
     }
   };
-  
+
   // Premium Hover Sound - subtle feedback
   const playHoverSound = () => {
     try {
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       const oscillator = audioCtx.createOscillator();
       const gainNode = audioCtx.createGain();
-      
+
       oscillator.type = 'sine';
       oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
       oscillator.frequency.exponentialRampToValueAtTime(800, audioCtx.currentTime + 0.03);
-      
+
       gainNode.gain.setValueAtTime(0.03, audioCtx.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.03);
-      
+
       oscillator.connect(gainNode);
       gainNode.connect(audioCtx.destination);
-      
+
       oscillator.start();
       oscillator.stop(audioCtx.currentTime + 0.03);
       setTimeout(() => audioCtx.close(), 100);
@@ -285,16 +301,16 @@ function App() {
         body: JSON.stringify({ pin: pinInput })
       });
       const data = await response.json();
-      
+
       if (data.success) {
         // PIN correct - allow one more rating
         setIsPinVerified(true);
         setShowPinModal(false);
         setPinInput('');
         setPinError('');
-        setRatingStatus({ 
-          ...ratingStatus, 
-          can_rate: true, 
+        setRatingStatus({
+          ...ratingStatus,
+          can_rate: true,
           needs_pin: false,
           pin_attempts: 0,
           pin_attempts_remaining: 3
@@ -304,8 +320,8 @@ function App() {
         setShowModal(true);
       } else if (data.locked) {
         // PIN wrong - user is now permanently locked
-        setRatingStatus({ 
-          ...ratingStatus, 
+        setRatingStatus({
+          ...ratingStatus,
           is_locked: true,
           pin_attempts: data.attempts_used || 3,
           pin_attempts_remaining: 0
@@ -317,8 +333,8 @@ function App() {
         alert('❌ ' + (data.error || 'Incorrect PIN! Your account is now locked.'));
       } else {
         // Wrong PIN but still has attempts remaining
-        setRatingStatus({ 
-          ...ratingStatus, 
+        setRatingStatus({
+          ...ratingStatus,
           pin_attempts: data.attempts_used || 0,
           pin_attempts_remaining: data.attempts_remaining || 0
         });
@@ -442,18 +458,18 @@ function App() {
     }
 
     const finalUrl = 'https://' + inputUrl;
-    
+
     // Show name modal first
     setPendingScanUrl(finalUrl);
     setScanVisitorName(generateRandomName());
     setShowNameModal(true);
   };
-  
+
   const proceedWithNameAndScan = async () => {
     setShowNameModal(false);
     const finalUrl = pendingScanUrl;
     const visitorName = scanVisitorName.trim() || generateRandomName();
-    
+
     // Kids Safe: Check content safety first
     setLoading(true);
     try {
@@ -463,7 +479,7 @@ function App() {
         body: JSON.stringify({ url: finalUrl })
       });
       const safetyData = await safetyResponse.json();
-      
+
       if (safetyData.warning) {
         // Show Kids Safe warning modal
         setKidsSafeData(safetyData);
@@ -476,14 +492,14 @@ function App() {
     } catch (err) {
       console.error("Failed to check content safety:", err);
     }
-    
+
     // No warning, proceed with scan
     await proceedWithScan(finalUrl, visitorName);
   };
-  
+
   // Store visitor name for kids safe modal continuation
   const [pendingVisitorName, setPendingVisitorName] = useState('');
-  
+
   const proceedWithScan = async (finalUrl, visitorName = '') => {
     setLoading(true);
     setError(null);
@@ -496,7 +512,7 @@ function App() {
       const response = await fetch('/api/scan-v2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           url: finalUrl,
           visitor_name: visitorName || generateRandomName()
         }),
@@ -524,13 +540,13 @@ function App() {
 
   const handleStarClick = async (stars) => {
     playClick();
-    
+
     // Check if user is locked
     if (ratingStatus.is_locked) {
       alert('❌ Your rating privileges have been permanently locked.');
       return;
     }
-    
+
     // If user needs PIN (already rated once), show PIN modal first
     if (ratingStatus.needs_pin && !isPinVerified) {
       setShowPinModal(true);
@@ -595,7 +611,7 @@ function App() {
         // Save to localStorage
         localStorage.setItem('fast_scanner_rated', 'true');
         localStorage.setItem('fast_scanner_feedback', feedback);
-        
+
         // Reset PIN verification after successful rating (they'll need PIN again for next)
         setIsPinVerified(false);
         // Reset feedback
@@ -631,13 +647,113 @@ function App() {
     return <SearchPage onBack={() => setShowSearchPage(false)} />;
   }
 
+  // Device Selection Screen
+  if (!deviceType) {
+    return (
+      <div style={styles.deviceOverlay} className="animate-fade-in">
+        <div style={styles.deviceModal} className="glass-card">
+          <h2 style={styles.deviceTitle}>Choose Your Device</h2>
+          <p style={styles.deviceSubtitle}>We'll optimize the experience for your screen.</p>
+
+          <div style={styles.deviceGrid}>
+            <div
+              style={styles.deviceOption}
+              className="device-card-hover"
+              onClick={() => {
+                playClick();
+                setDeviceType('laptop');
+                localStorage.setItem('fast_scanner_device', 'laptop');
+                reportDeviceSelection('laptop');
+              }}
+            >
+              <div style={styles.deviceIcon}>💻</div>
+              <div style={styles.deviceName}>Laptop</div>
+              <div style={styles.deviceDesc}>Full desktop experience</div>
+            </div>
+
+            <div
+              style={styles.deviceOption}
+              className="device-card-hover"
+              onClick={() => {
+                playClick();
+                setDeviceType('ipad');
+                localStorage.setItem('fast_scanner_device', 'ipad');
+                reportDeviceSelection('ipad');
+              }}
+            >
+              <div style={styles.deviceIcon}>📱</div>
+              <div style={styles.deviceName}>iPad / Tablet</div>
+              <div style={styles.deviceDesc}>Optimized for touch</div>
+            </div>
+
+            <div
+              style={styles.deviceOption}
+              className="device-card-hover"
+              onClick={() => {
+                playClick();
+                setDeviceType('phone');
+                localStorage.setItem('fast_scanner_device', 'phone');
+                reportDeviceSelection('phone');
+              }}
+            >
+              <div style={styles.deviceIcon}>🤳</div>
+              <div style={styles.deviceName}>Phone</div>
+              <div style={styles.deviceDesc}>Compact & mobile first</div>
+            </div>
+          </div>
+
+          <div style={styles.deviceFooter}>
+            You can change this anytime in settings.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const getContainerStyle = () => {
+    switch (deviceType) {
+      case 'phone': return styles.phoneContainer;
+      case 'ipad': return styles.ipadContainer;
+      default: return styles.laptopContainer;
+    }
+  };
+
+  const deviceUsage = stats.device_usage || { laptop: 0, ipad: 0, phone: 0 };
+  const totalDeviceUsers = Object.values(deviceUsage).reduce((a, b) => a + b, 0) || 1;
+
   return (
-    <div style={styles.container}>
+    <div style={{ ...styles.container, ...getContainerStyle() }}>
       <header style={styles.header}>
+        <div style={styles.deviceSwitch} onClick={() => setDeviceType(null)}>
+          🔄 Switch Device ({deviceType})
+        </div>
         <div style={styles.badge} className="animate-fade-in">
           <span style={styles.badgeIcon}>🛡️</span> Trusted by Aashvath Singh
         </div>
         <h1 style={styles.title} className="animate-fade-in">Fast <span style={styles.accent}>Scanner</span></h1>
+
+        {/* Global Device Usage Table */}
+        <div style={styles.deviceStatsTable} className="animate-fade-in">
+          <h3 style={styles.deviceTableTitle}>Global Device Usage</h3>
+          <div style={styles.deviceTableGrid}>
+            {Object.entries(deviceUsage).map(([type, count]) => (
+              <div key={type} style={styles.deviceTableRow}>
+                <div style={styles.deviceTypeLabel}>
+                  {type === 'laptop' ? '💻' : type === 'ipad' ? '📱' : '🤳'} {type.charAt(0).toUpperCase() + type.slice(1)}
+                </div>
+                <div style={styles.deviceTypeBar}>
+                  <div style={{
+                    ...styles.deviceTypeProgress,
+                    width: `${(count / totalDeviceUsers) * 100}%`,
+                    backgroundColor: type === 'laptop' ? '#38bdf8' : type === 'ipad' ? '#a855f7' : '#fbbf24'
+                  }}></div>
+                </div>
+                <div style={styles.deviceTypeCount}>{count}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <p className="animate-fade-in" style={{ ...styles.subtitle, animationDelay: '0.1s' }}>High-performance website security and speed analysis.</p>
 
         <div className="animate-fade-in" style={{ ...styles.statsRow, animationDelay: '0.2s' }}>
@@ -668,7 +784,7 @@ function App() {
             <p style={styles.loadingText}>Scanning website...</p>
           </div>
         )}
-        
+
         <form onSubmit={handleScan} className="animate-fade-in" style={{ ...styles.form, animationDelay: '0.3s', opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>
           <div style={styles.inputWrapper}>
             <input
@@ -677,12 +793,12 @@ function App() {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               disabled={loading}
-              style={{...styles.input, opacity: loading ? 0.7 : 1}}
+              style={{ ...styles.input, opacity: loading ? 0.7 : 1 }}
             />
           </div>
-          <button type="submit" disabled={loading} style={{...styles.button, cursor: loading ? 'not-allowed' : 'pointer'}}>
+          <button type="submit" disabled={loading} style={{ ...styles.button, cursor: loading ? 'not-allowed' : 'pointer' }}>
             {loading ? (
-              <span style={{display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center'}}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
                 <span style={styles.buttonSpinner}></span>
                 Analyzing...
               </span>
@@ -742,7 +858,7 @@ function App() {
               <ResultCard label="Load Time" value={`${result.load_time_ms} ms`} sub="Total response time" />
               <ResultCard label="Page Size" value={`${(result.content_length / 1024).toFixed(2)} KB`} sub="Payload size" />
               <ResultCard label="Status" value={result.status} sub="HTTP response code" />
-              
+
               {/* V2: Scan Method Badge */}
               <div style={styles.card} className="card-hover">
                 <div style={styles.cardLabel}>Scan Method</div>
@@ -754,8 +870,8 @@ function App() {
                   {result.scan_method === 'browser' ? '🌐 Browser' : '📡 Legacy'}
                 </div>
                 <div style={styles.cardSub}>
-                  {result.scan_method === 'browser' 
-                    ? 'Accurate browser-based analysis' 
+                  {result.scan_method === 'browser'
+                    ? 'Accurate browser-based analysis'
                     : 'Standard HTTP request scan'}
                 </div>
               </div>
@@ -793,35 +909,18 @@ function App() {
                 </div>
               </div>
 
-              {/* VR YouTube Channel Promo */}
-              <a 
-                href="https://www.youtube.com/@Aashvathvrfun" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                style={styles.vrPromoLink}
-              >
-                <div style={styles.vrPromoCard}>
-                  <div style={styles.vrPromoIcon}>🎮</div>
-                  <div style={styles.vrPromoContent}>
-                    <h4 style={styles.vrPromoTitle}>🚀 Check Out My VR Channel!</h4>
-                    <p style={styles.vrPromoText}>
-                      Watch latest VR features, gameplay & tech reviews on <strong>@Aashvathvrfun</strong>
-                    </p>
-                    <span style={styles.vrPromoCta}>View & Subscribe →</span>
-                  </div>
-                </div>
-              </a>
+
 
               <div style={styles.ratingBox}>
                 <p style={styles.ratingTitle}>
-                  {ratingStatus.is_locked ? '🔒 Rating Locked' : 
-                   (hasRated ? 'Thanks for your feedback!' : 'Rate our service')}
+                  {ratingStatus.is_locked ? '🔒 Rating Locked' :
+                    (hasRated ? 'Thanks for your feedback!' : 'Rate our service')}
                 </p>
 
                 {ratingStatus.is_locked ? (
-                  <div style={{ 
-                    backgroundColor: '#451a1a', 
-                    padding: '15px', 
+                  <div style={{
+                    backgroundColor: '#451a1a',
+                    padding: '15px',
                     borderRadius: '8px',
                     border: '1px solid #7f1d1d',
                     marginBottom: '15px'
@@ -849,9 +948,9 @@ function App() {
                     </div>
 
                     {ratingStatus.needs_pin && !isPinVerified && (
-                      <p style={{ 
-                        color: '#fbbf24', 
-                        fontSize: '0.8rem', 
+                      <p style={{
+                        color: '#fbbf24',
+                        fontSize: '0.8rem',
                         marginTop: '8px',
                         fontStyle: 'italic'
                       }}>
@@ -885,7 +984,7 @@ function App() {
                   <p style={styles.historySubtitle}>Click a website to view its scan history</p>
                 </div>
                 {/* V2: More Button */}
-                <button 
+                <button
                   onClick={() => { playClick(); setShowSearchPage(true); }}
                   onMouseEnter={playHoverSound}
                   style={styles.moreButton}
@@ -897,7 +996,7 @@ function App() {
 
             {(() => {
               const groupedScans = groupScansByHostname(recentScans);
-              const hostnames = Object.keys(groupedScans).sort((a, b) => 
+              const hostnames = Object.keys(groupedScans).sort((a, b) =>
                 getLatestTime(groupedScans[b]) - getLatestTime(groupedScans[a])
               );
 
@@ -922,20 +1021,20 @@ function App() {
                           const isExpanded = expandedSite === hostname;
                           return (
                             <React.Fragment key={hostname}>
-                              <tr 
+                              <tr
                                 style={{
                                   ...styles.tr,
                                   cursor: 'pointer',
                                   backgroundColor: isExpanded ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
                                   transition: 'all 0.2s ease',
-                                }} 
+                                }}
                                 onClick={() => { playClick(); setExpandedSite(isExpanded ? null : hostname); }}
                                 onMouseEnter={playHoverSound}
                                 className="website-row premium-row"
                               >
                                 <td style={{ ...styles.td, fontWeight: '600' }}>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{ 
+                                    <span style={{
                                       transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                                       transition: 'transform 0.2s',
                                       color: '#38bdf8'
@@ -992,7 +1091,7 @@ function App() {
                                   {(() => {
                                     const score = getLatestScore(scans);
                                     return score ? (
-                                      <span style={{ 
+                                      <span style={{
                                         color: score >= 90 ? '#4ade80' : score >= 50 ? '#fbbf24' : '#f87171',
                                         fontWeight: '600'
                                       }}>
@@ -1039,7 +1138,7 @@ function App() {
                                               </td>
                                               <td style={styles.historyTd}>
                                                 {scan.score ? (
-                                                  <span style={{ 
+                                                  <span style={{
                                                     color: scan.score >= 90 ? '#4ade80' : scan.score >= 50 ? '#fbbf24' : '#f87171'
                                                   }}>
                                                     {Math.round(scan.score)}
@@ -1070,7 +1169,7 @@ function App() {
                       const latestGrade = getBestGrade(scans);
                       return (
                         <div key={hostname} className="mobile-website-card">
-                          <div 
+                          <div
                             className="mobile-website-header"
                             onClick={() => { playClick(); setExpandedSite(isExpanded ? null : hostname); }}
                             onMouseEnter={playHoverSound}
@@ -1089,7 +1188,7 @@ function App() {
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <span style={{ 
+                              <span style={{
                                 transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
                                 transition: 'transform 0.2s',
                                 color: '#38bdf8'
@@ -1112,7 +1211,7 @@ function App() {
                               </span>
                             )}
                           </div>
-                          
+
                           {isExpanded && (
                             <div style={styles.mobileHistoryPanel}>
                               {[...scans].sort((a, b) => b.timestamp - a.timestamp).map((scan, idx) => (
@@ -1142,7 +1241,7 @@ function App() {
                                       {scan.visitor_name || 'Anonymous'}
                                     </span>
                                     {scan.score && (
-                                      <span style={{ 
+                                      <span style={{
                                         color: scan.score >= 90 ? '#4ade80' : scan.score >= 50 ? '#fbbf24' : '#f87171',
                                         fontSize: '0.85rem'
                                       }}>
@@ -1258,7 +1357,7 @@ function App() {
 
               {/* Attempts Counter */}
               <div style={styles.pinAttemptsBox}>
-                <span style={{ 
+                <span style={{
                   color: ratingStatus.pin_attempts_remaining === 1 ? '#ef4444' : '#fbbf24',
                   fontWeight: '700',
                   fontSize: '1rem'
@@ -1306,7 +1405,7 @@ function App() {
             <div style={styles.kidsSafeModal}>
               <div style={styles.kidsSafeIcon}>🔞</div>
               <h2 style={styles.kidsSafeTitle}>⚠️ Kids Safe Warning</h2>
-              
+
               <div style={styles.kidsSafeAlert}>
                 <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700' }}>
                   This website may contain Adult (18+) content
@@ -1336,7 +1435,7 @@ function App() {
 
               <div style={styles.kidsSafeMessage}>
                 <p style={{ margin: 0 }}>
-                  🛡️ <strong>Kids Safe Mode:</strong> This website has been flagged as potentially containing 
+                  🛡️ <strong>Kids Safe Mode:</strong> This website has been flagged as potentially containing
                   adult or mature content that may not be appropriate for children under 18.
                 </p>
               </div>
@@ -1346,23 +1445,23 @@ function App() {
               </div>
 
               <div style={styles.kidsSafeActions}>
-                <button 
-                  onClick={() => { 
-                    playClick(); 
-                    setShowKidsSafeModal(false); 
+                <button
+                  onClick={() => {
+                    playClick();
+                    setShowKidsSafeModal(false);
                     setPendingUrl('');
                     setLoading(false);
-                  }} 
+                  }}
                   onMouseEnter={playHoverSound}
                   style={styles.kidsSafeCancelBtn}
                 >
                   ❌ No, Cancel Scan
                 </button>
-                <button 
-                  onClick={() => { 
-                    playClick(); 
+                <button
+                  onClick={() => {
+                    playClick();
                     proceedWithScan(pendingUrl, pendingVisitorName);
-                  }} 
+                  }}
                   onMouseEnter={playHoverSound}
                   style={styles.kidsSafeProceedBtn}
                 >
@@ -1394,14 +1493,14 @@ function App() {
                 💡 Press Enter or click Continue to start scanning
               </div>
               <div style={styles.nameModalActions}>
-                <button 
-                  onClick={() => { playClick(); setShowNameModal(false); setPendingScanUrl(''); }} 
+                <button
+                  onClick={() => { playClick(); setShowNameModal(false); setPendingScanUrl(''); }}
                   style={styles.nameModalCancel}
                 >
                   Cancel
                 </button>
-                <button 
-                  onClick={() => { playClick(); proceedWithNameAndScan(); }} 
+                <button
+                  onClick={() => { playClick(); proceedWithNameAndScan(); }}
                   style={styles.nameModalConfirm}
                 >
                   Continue Scan 🚀
@@ -2087,50 +2186,7 @@ const styles = {
     paddingTop: '24px',
     borderTop: '1px solid rgba(255, 255, 255, 0.05)',
   },
-  vrPromoLink: {
-    textDecoration: 'none',
-    display: 'block',
-    marginTop: '20px',
-    marginBottom: '20px',
-  },
-  vrPromoCard: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '16px',
-    padding: '20px',
-    background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(185, 28, 28, 0.1) 100%)',
-    borderRadius: '16px',
-    border: '1px solid rgba(239, 68, 68, 0.3)',
-    transition: 'all 0.3s ease',
-    cursor: 'pointer',
-  },
-  vrPromoIcon: {
-    fontSize: '2.5rem',
-    flexShrink: 0,
-  },
-  vrPromoContent: {
-    flex: 1,
-  },
-  vrPromoTitle: {
-    margin: '0 0 8px 0',
-    fontSize: '1rem',
-    fontWeight: '700',
-    color: '#f8fafc',
-  },
-  vrPromoText: {
-    margin: '0 0 8px 0',
-    fontSize: '0.9rem',
-    color: '#cbd5e1',
-    lineHeight: 1.4,
-  },
-  vrPromoCta: {
-    display: 'inline-block',
-    fontSize: '0.85rem',
-    fontWeight: '700',
-    color: '#ef4444',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-  },
+
   ratingTitle: {
     fontSize: '0.85rem',
     fontWeight: '600',
@@ -2539,6 +2595,163 @@ const styles = {
     cursor: 'pointer',
     fontSize: '0.95rem',
     transition: 'all 0.2s',
+  },
+  // Device Selector Styles
+  deviceOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(2, 6, 23, 0.95)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5000,
+    padding: '20px',
+    backdropFilter: 'blur(15px)',
+  },
+  deviceModal: {
+    maxWidth: '900px',
+    width: '100%',
+    padding: '60px 40px',
+    borderRadius: '40px',
+    textAlign: 'center',
+    border: '1px solid rgba(56, 189, 248, 0.2)',
+  },
+  deviceTitle: {
+    fontSize: '2.5rem',
+    fontWeight: '800',
+    marginBottom: '12px',
+    background: 'linear-gradient(135deg, #fff 0%, #94a3b8 100%)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+  },
+  deviceSubtitle: {
+    fontSize: '1.1rem',
+    color: '#94a3b8',
+    marginBottom: '48px',
+  },
+  deviceGrid: {
+    display: 'flex',
+    gap: '24px',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+  },
+  deviceOption: {
+    flex: '1 1 240px',
+    maxWidth: '280px',
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    padding: '40px 24px',
+    borderRadius: '32px',
+    border: '1px solid rgba(255, 255, 255, 0.05)',
+    cursor: 'pointer',
+    transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+  },
+  deviceIcon: {
+    fontSize: '4rem',
+    marginBottom: '20px',
+  },
+  deviceName: {
+    fontSize: '1.5rem',
+    fontWeight: '700',
+    marginBottom: '8px',
+    color: '#f8fafc',
+  },
+  deviceDesc: {
+    fontSize: '0.9rem',
+    color: '#64748b',
+    lineHeight: '1.4',
+  },
+  deviceFooter: {
+    marginTop: '48px',
+    fontSize: '0.85rem',
+    color: '#475569',
+    fontStyle: 'italic',
+  },
+  deviceSwitch: {
+    position: 'absolute',
+    top: '20px',
+    right: '20px',
+    padding: '8px 16px',
+    backgroundColor: 'rgba(30, 41, 59, 0.6)',
+    borderRadius: '20px',
+    fontSize: '0.8rem',
+    color: '#38bdf8',
+    cursor: 'pointer',
+    border: '1px solid rgba(56, 189, 248, 0.2)',
+    transition: 'all 0.2s',
+    zIndex: 100,
+  },
+  // Container specializations
+  laptopContainer: {
+    maxWidth: '1400px',
+  },
+  ipadContainer: {
+    maxWidth: '900px',
+    margin: '0 auto',
+    padding: '20px',
+  },
+  phoneContainer: {
+    maxWidth: '480px',
+    margin: '0 auto',
+    padding: '15px',
+  },
+  // Global Device Usage Table Styles
+  deviceStatsTable: {
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(56, 189, 248, 0.15)',
+    borderRadius: '20px',
+    padding: '24px',
+    margin: '20px auto 40px auto',
+    maxWidth: '600px',
+    boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)',
+  },
+  deviceTableTitle: {
+    fontSize: '0.9rem',
+    fontWeight: '700',
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    marginBottom: '20px',
+    textAlign: 'center',
+  },
+  deviceTableGrid: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px',
+  },
+  deviceTableRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+  },
+  deviceTypeLabel: {
+    width: '100px',
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    color: '#f8fafc',
+    textAlign: 'left',
+  },
+  deviceTypeBar: {
+    flex: 1,
+    height: '8px',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: '4px',
+    overflow: 'hidden',
+  },
+  deviceTypeProgress: {
+    height: '100%',
+    borderRadius: '4px',
+    transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)',
+  },
+  deviceTypeCount: {
+    width: '40px',
+    fontSize: '1rem',
+    fontWeight: '800',
+    color: '#38bdf8',
+    textAlign: 'right',
   },
 };
 
