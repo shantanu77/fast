@@ -38,9 +38,6 @@ active_users = {} # {ip: last_activity_timestamp}
 # Unique visitors tracking (persisted in memory, could be moved to DB)
 unique_visitors = set()  # Set of unique IPs
 
-# V2: Device usage tracking
-device_usage = {"laptop": 0, "ipad": 0, "phone": 0}
-
 # Admin PIN Security System
 ADMIN_PIN = '2026110507713e5ngaashvath'
 
@@ -142,6 +139,37 @@ class Feedback(db.Model):
         self.scan_id = scan_id
         self.timestamp = time.time()
 
+# Device Statistics Model
+class DeviceStats(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    laptop_count = db.Column(db.Integer, default=0)
+    ipad_count = db.Column(db.Integer, default=0)
+    phone_count = db.Column(db.Integer, default=0)
+    no_change_count = db.Column(db.Integer, default=0)
+
+    @classmethod
+    def get_stats(cls):
+        stats = cls.query.first()
+        if not stats:
+            stats = cls(laptop_count=0, ipad_count=0, phone_count=0, no_change_count=0)
+            db.session.add(stats)
+            db.session.commit()
+        return stats
+
+# Domain Comment Model
+class DomainComment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    domain = db.Column(db.String(255), nullable=False, index=True)
+    visitor_name = db.Column(db.String(100), nullable=True)
+    comment = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.Float, default=time.time)
+
+    def __init__(self, domain, visitor_name, comment):
+        self.domain = domain
+        self.visitor_name = visitor_name
+        self.comment = comment
+        self.timestamp = time.time()
+
 # Create tables
 with app.app_context():
     try:
@@ -190,20 +218,6 @@ def health():
         "browser_scan_available": BROWSER_SCAN_AVAILABLE,
         "kids_safety_available": KIDS_SAFETY_AVAILABLE
     })
-
-# ==================== V2: DEVICE TRACKING ====================
-
-@app.route('/api/set-device', methods=['POST'])
-def set_device():
-    """Track user device type selection."""
-    data = request.json
-    device = data.get('device_type', '').lower()
-    
-    if device in device_usage:
-        device_usage[device] += 1
-        return jsonify({"success": True, "counts": device_usage})
-    
-    return jsonify({"error": "Invalid device type"}), 400
 
 # ==================== V2: KIDS SAFETY ENDPOINTS ====================
 
@@ -523,11 +537,12 @@ def extract_domain(url, normalize_www=True):
     if not url:
         return ''
     # Remove protocol
-    url = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
+    domain = re.sub(r'^https?://', '', url, flags=re.IGNORECASE)
     # Get domain (everything before / or ? or #)
-    domain = url.split('/')[0].split('?')[0].split('#')[0].lower()
+    domain = domain.split('/')[0].split('?')[0].split('#')[0].lower()
     # Remove www. prefix for normalization (but keep other subdomains)
     if normalize_www:
+        # Only remove www. if it's at the start of the domain part
         domain = re.sub(r'^www\.', '', domain, flags=re.IGNORECASE)
     return domain
 
@@ -613,7 +628,7 @@ def search_websites():
             "page": page,
             "per_page": per_page,
             "total_pages": (total + per_page - 1) // per_page,
-            "query": query
+            "query": raw_query
         })
         
     except Exception as e:
@@ -957,9 +972,9 @@ def get_stats():
             "live_users": len(live_ips),  # Actual live users, no random offset
             "total_unique_visitors": len(unique_visitors),  # Total unique visitors
             "total_users": total_scans,  # Total scans (actual count, no offset)
+            "total_users": total_scans,  # Total scans (actual count, no offset)
             "total_reviews": total_reviews,
             "average_rating": avg_rating,
-            "device_usage": device_usage,
             "v2_features": {
                 "browser_scan": BROWSER_SCAN_AVAILABLE,
                 "kids_safety": KIDS_SAFETY_AVAILABLE
@@ -967,6 +982,130 @@ def get_stats():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+@app.route('/api/device-stats', methods=['GET'])
+def get_device_stats():
+    """Get global device usage statistics."""
+    try:
+        stats = DeviceStats.get_stats()
+        # Adding automatic detection info (simulated for now as it's handled by frontend)
+        return jsonify({
+            "laptop": stats.laptop_count,
+            "ipad": stats.ipad_count,
+            "phone": stats.phone_count,
+            "no_change": stats.no_change_count,
+            "total": stats.laptop_count + stats.ipad_count + stats.phone_count + stats.no_change_count
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# ==================== V2: DOMAIN SPECIFIC PAGES ====================
+
+@app.route('/api/domain/<domain_name>', methods=['GET'])
+def get_domain_details(domain_name):
+    """Get specific details for a domain including latest scan, history, and comments."""
+    normalized_domain = extract_domain(domain_name)
+    if not normalized_domain:
+        return jsonify({"error": "Invalid domain"}), 400
+    
+    try:
+        # Get all scans for this domain variants
+        variants = get_domain_variants(normalized_domain)
+        from sqlalchemy import or_
+        domain_conditions = [ScanRecord.url.ilike(f'%//{variant}%') for variant in variants]
+        domain_conditions.extend([ScanRecord.url.ilike(f'%//www.{variant}%') for variant in variants if not variant.startswith('www.')])
+        
+        scans = ScanRecord.query.filter(or_(*domain_conditions)).order_by(ScanRecord.timestamp.desc()).all()
+        
+        if not scans:
+            return jsonify({"error": "No scans found for this domain"}), 404
+        
+        latest = scans[0]
+        history = [{
+            "timestamp": s.timestamp,
+            "score": s.performance_score,
+            "grade": s.grade,
+            "load_time": s.load_time
+        } for s in reversed(scans)] # chronological order for graph
+        
+        comments = DomainComment.query.filter_by(domain=normalized_domain).order_by(DomainComment.timestamp.desc()).all()
+        
+        return jsonify({
+            "domain": normalized_domain,
+            "latest": {
+                "id": latest.id,
+                "url": latest.url,
+                "grade": latest.grade,
+                "score": latest.performance_score,
+                "load_time": latest.load_time,
+                "timestamp": latest.timestamp,
+                "kids_safety_rating": latest.kids_safety_rating,
+                "kids_safety_score": latest.kids_safety_score
+            },
+            "history": history,
+            "comments": [{
+                "id": c.id,
+                "visitor_name": c.visitor_name,
+                "comment": c.comment,
+                "timestamp": c.timestamp
+            } for c in comments]
+        })
+    except Exception as e:
+        print(f"Error fetching domain details: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/domain/<domain_name>/comment', methods=['POST'])
+def post_domain_comment(domain_name):
+    """Post a comment for a specific domain with captcha verification."""
+    normalized_domain = extract_domain(domain_name)
+    data = request.json
+    visitor_name = data.get('visitor_name', '').strip() or generate_random_name()
+    comment = data.get('comment', '').strip()
+    captcha_id = data.get('captcha_id')
+    captcha_answer = data.get('captcha_answer')
+    
+    if not comment:
+        return jsonify({"error": "Comment cannot be empty"}), 400
+    
+    # Captcha verification
+    cleanup_expired_captchas()
+    if not captcha_id or captcha_id not in captcha_store:
+        return jsonify({"error": "Captcha expired or invalid."}), 400
+    
+    captcha_data = captcha_store[captcha_id]
+    try:
+        if int(captcha_answer) != captcha_data['solution']:
+            return jsonify({"error": "Wrong captcha answer!"}), 400
+        captcha_store.pop(captcha_id, None)
+    except:
+        return jsonify({"error": "Invalid captcha format"}), 400
+    
+    try:
+        new_comment = DomainComment(
+            domain=normalized_domain,
+            visitor_name=visitor_name,
+            comment=comment
+        )
+        db.session.add(new_comment)
+        db.session.commit()
+        
+        return jsonify({
+            "success": True, 
+            "message": "Comment posted",
+            "comment": {
+                "visitor_name": visitor_name,
+                "comment": comment,
+                "timestamp": new_comment.timestamp
+            }
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/select-device', methods=['POST'])
+def select_device():
+    """Deprecated: Device selection is now automatic."""
+    return jsonify({"success": True, "message": "Device recorded (automated)"})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
+

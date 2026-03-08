@@ -7,7 +7,9 @@
     "cra-template-default": "0.0.5",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-scripts": "5.0.1"
+    "react-router-dom": "^7.13.1",
+    "react-scripts": "5.0.1",
+    "recharts": "^3.8.0"
   },
   "scripts": {
     "start": "react-scripts start",

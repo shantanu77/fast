@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import SearchPage from './SearchPage';
+import DomainPage from './DomainPage';
 
 function App() {
   const [url, setUrl] = useState('');
@@ -63,21 +65,13 @@ function App() {
   // V2: Search Page
   const [showSearchPage, setShowSearchPage] = useState(false);
 
-  // V2: Device Selection
-  const [deviceType, setDeviceType] = useState(localStorage.getItem('fast_scanner_device') || null);
-
-  const reportDeviceSelection = async (type) => {
-    try {
-      await fetch('/api/set-device', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_type: type })
-      });
-      fetchStats(); // Refresh stats to show new counts
-    } catch (err) {
-      console.error("Failed to report device selection", err);
-    }
-  };
+  // Device Selection V3
+  const [showDeviceModal, setShowDeviceModal] = useState(false);
+  const [userDevice, setUserDevice] = useState(localStorage.getItem('fast_scanner_device') || null);
+  const [deviceStats, setDeviceStats] = useState({ laptop: 0, ipad: 0, phone: 0, no_change: 0, total: 0 });
+  const [isChangingDevice, setIsChangingDevice] = useState(false);
+  const [showDevicePinModal, setShowDevicePinModal] = useState(false);
+  const [pendingDevice, setPendingDevice] = useState(null);
 
   // Visitor name for scan
   const [scanVisitorName, setScanVisitorName] = useState('');
@@ -262,11 +256,59 @@ function App() {
     }
   };
 
+  const fetchDeviceStats = async () => {
+    try {
+      const response = await fetch('/api/device-stats');
+      const data = await response.json();
+      setDeviceStats(data);
+    } catch (err) {
+      console.error("Failed to fetch device stats", err);
+    }
+  };
+
+  const selectDevice = async (device, isChange = false, pin = '') => {
+    try {
+      const response = await fetch('/api/select-device', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device, is_change: isChange, pin })
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        localStorage.setItem('fast_scanner_device', device);
+        setUserDevice(device);
+        setShowDeviceModal(false);
+        setShowDevicePinModal(false);
+        setIsChangingDevice(false);
+        setPinInput('');
+        setDevicePinError('');
+        fetchDeviceStats();
+        if (isChange) alert(`✅ Device changed to ${device}!`);
+      } else if (data.locked) {
+        setDevicePinError('❌ Your privileges are permanently locked.');
+        alert('❌ ' + data.error);
+      } else {
+        setDevicePinError(data.error || '❌ Incorrect PIN');
+      }
+    } catch (err) {
+      console.error("Failed to select device", err);
+    }
+  };
+
+  const [devicePinError, setDevicePinError] = useState('');
+
+  const handleDeviceSelect = (device) => {
+    // Automated - no more modal
+    playClick();
+  };
+
   React.useEffect(() => {
     fetchRecentScans();
     fetchRecentFeedback();
     fetchStats();
     checkRatingStatus(); // Check rating status on load
+    fetchDeviceStats(); // Fetch device stats on load
     setVisitorName(generateRandomName());
 
     const statsInterval = setInterval(fetchStats, 15000); // Update stats every 15s
@@ -642,881 +684,236 @@ function App() {
     }
   };
 
-  // V2: Show Search Page
-  if (showSearchPage) {
-    return <SearchPage onBack={() => setShowSearchPage(false)} />;
-  }
-
-  // Device Selection Screen
-  if (!deviceType) {
-    return (
-      <div style={styles.deviceOverlay} className="animate-fade-in">
-        <div style={styles.deviceModal} className="glass-card">
-          <h2 style={styles.deviceTitle}>Choose Your Device</h2>
-          <p style={styles.deviceSubtitle}>We'll optimize the experience for your screen.</p>
-
-          <div style={styles.deviceGrid}>
-            <div
-              style={styles.deviceOption}
-              className="device-card-hover"
-              onClick={() => {
-                playClick();
-                setDeviceType('laptop');
-                localStorage.setItem('fast_scanner_device', 'laptop');
-                reportDeviceSelection('laptop');
-              }}
-            >
-              <div style={styles.deviceIcon}>💻</div>
-              <div style={styles.deviceName}>Laptop</div>
-              <div style={styles.deviceDesc}>Full desktop experience</div>
-            </div>
-
-            <div
-              style={styles.deviceOption}
-              className="device-card-hover"
-              onClick={() => {
-                playClick();
-                setDeviceType('ipad');
-                localStorage.setItem('fast_scanner_device', 'ipad');
-                reportDeviceSelection('ipad');
-              }}
-            >
-              <div style={styles.deviceIcon}>📱</div>
-              <div style={styles.deviceName}>iPad / Tablet</div>
-              <div style={styles.deviceDesc}>Optimized for touch</div>
-            </div>
-
-            <div
-              style={styles.deviceOption}
-              className="device-card-hover"
-              onClick={() => {
-                playClick();
-                setDeviceType('phone');
-                localStorage.setItem('fast_scanner_device', 'phone');
-                reportDeviceSelection('phone');
-              }}
-            >
-              <div style={styles.deviceIcon}>🤳</div>
-              <div style={styles.deviceName}>Phone</div>
-              <div style={styles.deviceDesc}>Compact & mobile first</div>
-            </div>
-          </div>
-
-          <div style={styles.deviceFooter}>
-            You can change this anytime in settings.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const getContainerStyle = () => {
-    switch (deviceType) {
-      case 'phone': return styles.phoneContainer;
-      case 'ipad': return styles.ipadContainer;
-      default: return styles.laptopContainer;
-    }
-  };
-
-  const deviceUsage = stats.device_usage || { laptop: 0, ipad: 0, phone: 0 };
-  const totalDeviceUsers = Object.values(deviceUsage).reduce((a, b) => a + b, 0) || 1;
-
   return (
-    <div style={{ ...styles.container, ...getContainerStyle() }}>
-      <header style={styles.header}>
-        <div style={styles.deviceSwitch} onClick={() => setDeviceType(null)}>
-          🔄 Switch Device ({deviceType})
-        </div>
-        <div style={styles.badge} className="animate-fade-in">
-          <span style={styles.badgeIcon}>🛡️</span> Trusted by Aashvath Singh
-        </div>
-        <h1 style={styles.title} className="animate-fade-in">Fast <span style={styles.accent}>Scanner</span></h1>
-
-        {/* Global Device Usage Table */}
-        <div style={styles.deviceStatsTable} className="animate-fade-in">
-          <h3 style={styles.deviceTableTitle}>Global Device Usage</h3>
-          <div style={styles.deviceTableGrid}>
-            {Object.entries(deviceUsage).map(([type, count]) => (
-              <div key={type} style={styles.deviceTableRow}>
-                <div style={styles.deviceTypeLabel}>
-                  {type === 'laptop' ? '💻' : type === 'ipad' ? '📱' : '🤳'} {type.charAt(0).toUpperCase() + type.slice(1)}
+    <Router>
+      <Routes>
+        <Route path="/pages/:domain" element={<DomainPage />} />
+        <Route path="/" element={
+          showSearchPage ? (
+            <SearchPage onBack={() => setShowSearchPage(false)} />
+          ) : (
+            <div style={styles.container}>
+              <header style={styles.header}>
+                <div style={styles.badge} className="animate-fade-in">
+                  <span style={styles.badgeIcon}>🛡️</span> Trusted by Aashvath Singh
                 </div>
-                <div style={styles.deviceTypeBar}>
-                  <div style={{
-                    ...styles.deviceTypeProgress,
-                    width: `${(count / totalDeviceUsers) * 100}%`,
-                    backgroundColor: type === 'laptop' ? '#38bdf8' : type === 'ipad' ? '#a855f7' : '#fbbf24'
-                  }}></div>
-                </div>
-                <div style={styles.deviceTypeCount}>{count}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+                <h1 style={styles.title} className="animate-fade-in">Fast <span style={styles.accent}>Scanner</span></h1>
+                <p className="animate-fade-in" style={{ ...styles.subtitle, animationDelay: '0.1s' }}>High-performance website security and speed analysis.</p>
 
-        <p className="animate-fade-in" style={{ ...styles.subtitle, animationDelay: '0.1s' }}>High-performance website security and speed analysis.</p>
-
-        <div className="animate-fade-in" style={{ ...styles.statsRow, animationDelay: '0.2s' }}>
-          <div style={styles.statChip}>
-            <span style={{ ...styles.statDot, backgroundColor: '#4ade80' }}></span>
-            <strong>{stats.live_users}</strong> Live Users
-          </div>
-          <div style={styles.statChip}>
-            <span style={{ ...styles.statDot, backgroundColor: '#a855f7' }}></span>
-            <strong>{stats.total_unique_visitors || 0}</strong> Unique Visitors
-          </div>
-          <div style={styles.statChip}>
-            <span style={{ ...styles.statDot, backgroundColor: '#38bdf8' }}></span>
-            <strong>{stats.total_users}</strong> Total Scans
-          </div>
-          <div style={styles.statChip}>
-            <span style={{ ...styles.statDot, backgroundColor: '#fbbf24' }}></span>
-            <strong>{stats.total_reviews}</strong> Reviews
-          </div>
-        </div>
-      </header>
-
-      <main style={styles.main}>
-        {/* Loading Overlay */}
-        {loading && (
-          <div style={styles.loadingOverlay}>
-            <div style={styles.loadingSpinner}></div>
-            <p style={styles.loadingText}>Scanning website...</p>
-          </div>
-        )}
-
-        <form onSubmit={handleScan} className="animate-fade-in" style={{ ...styles.form, animationDelay: '0.3s', opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>
-          <div style={styles.inputWrapper}>
-            <input
-              type="text"
-              placeholder="Enter website URL (e.g. google.com)"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              disabled={loading}
-              style={{ ...styles.input, opacity: loading ? 0.7 : 1 }}
-            />
-          </div>
-          <button type="submit" disabled={loading} style={{ ...styles.button, cursor: loading ? 'not-allowed' : 'pointer' }}>
-            {loading ? (
-              <span style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
-                <span style={styles.buttonSpinner}></span>
-                Analyzing...
-              </span>
-            ) : 'Launch Scan 🚀'}
-          </button>
-        </form>
-
-        {error && <div style={styles.errorCard}>{error}</div>}
-
-        {result && (
-          <div style={styles.resultsContainer} className="glass-card animate-fade-in">
-            <div style={{ ...styles.safeBanner, backgroundColor: result.is_safe ? '#065f46' : '#7f1d1d', border: `1px solid ${result.is_safe ? '#059669' : '#dc2626'}`, color: result.is_safe ? '#ecfdf5' : '#fef2f2' }}>
-              <div style={{ ...styles.gradeBadge, backgroundColor: getGradeColor(result.grade) }}>
-                {result.grade}
-              </div>
-              <div style={styles.statusTextContainer}>
-                <h2 style={styles.statusHeadline}>{result.safety_status}</h2>
-                {result.safety_reasons.length > 0 && (
-                  <p style={styles.statusSubline}>{result.safety_reasons.join(' | ')}</p>
-                )}
-              </div>
-            </div>
-
-            <div style={styles.resultGrid}>
-              {/* V2: Kids Safety Card */}
-              {result.kids_safety && (
-                <div style={{
-                  ...styles.card,
-                  borderColor: result.kids_safety.display?.color || '#6b7280',
-                  borderWidth: '2px',
-                }} className="card-hover">
-                  <div style={styles.cardLabel}>👶 Safe for Kids</div>
-                  <div style={{
-                    ...styles.cardValue,
-                    color: result.kids_safety.display?.color || '#6b7280',
-                    fontSize: '1.4rem',
-                  }}>
-                    {result.kids_safety.display?.emoji} {result.kids_safety.display?.label}
+                <div className="animate-fade-in" style={{ ...styles.statsRow, animationDelay: '0.2s' }}>
+                  <div style={styles.statChip}>
+                    <span style={{ ...styles.statDot, backgroundColor: '#4ade80' }}></span>
+                    <strong>{stats.live_users}</strong> Live Users
                   </div>
-                  <div style={styles.cardSub}>
-                    Score: {result.kids_safety.score}/100 • {result.kids_safety.confidence} confidence
-                    {result.kids_safety.warnings?.length > 0 && (
-                      <div style={{ marginTop: '8px', color: '#fbbf24' }}>
-                        ⚠️ {result.kids_safety.warnings.length} warning(s)
+                  <div style={styles.statChip}>
+                    <span style={{ ...styles.statDot, backgroundColor: '#a855f7' }}></span>
+                    <strong>{stats.total_unique_visitors || 0}</strong> Unique Visitors
+                  </div>
+                  <div style={styles.statChip}>
+                    <span style={{ ...styles.statDot, backgroundColor: '#38bdf8' }}></span>
+                    <strong>{stats.total_users}</strong> Total Scans
+                  </div>
+                  <div style={styles.statChip}>
+                    <span style={{ ...styles.statDot, backgroundColor: '#fbbf24' }}></span>
+                    <strong>{stats.total_reviews}</strong> Reviews
+                  </div>
+                </div>
+              </header>
+
+              <main style={styles.main}>
+                {loading && (
+                  <div style={styles.loadingOverlay}>
+                    <div style={styles.loadingSpinner}></div>
+                    <p style={styles.loadingText}>Scanning website...</p>
+                  </div>
+                )}
+
+                <form onSubmit={handleScan} className="animate-fade-in" style={{ ...styles.form, animationDelay: '0.3s', opacity: loading ? 0.6 : 1, pointerEvents: loading ? 'none' : 'auto' }}>
+                  <div style={styles.inputWrapper}>
+                    <input
+                      type="text"
+                      placeholder="Enter website URL (e.g. google.com)"
+                      value={url}
+                      onChange={(e) => setUrl(e.target.value)}
+                      disabled={loading}
+                      style={{ ...styles.input, opacity: loading ? 0.7 : 1 }}
+                    />
+                  </div>
+                  <button type="submit" disabled={loading} style={{ ...styles.button, cursor: loading ? 'not-allowed' : 'pointer' }}>
+                    {loading ? 'Analyzing...' : 'Launch Scan 🚀'}
+                  </button>
+                </form>
+
+                {error && <div style={styles.errorCard}>{error}</div>}
+
+                {result && (
+                  <div style={styles.resultsContainer} className="glass-card animate-fade-in">
+                    <div style={{ ...styles.safeBanner, backgroundColor: result.is_safe ? '#065f46' : '#7f1d1d', border: `1px solid ${result.is_safe ? '#059669' : '#dc2626'}`, color: result.is_safe ? '#ecfdf5' : '#fef2f2' }}>
+                      <div style={{ ...styles.gradeBadge, backgroundColor: getGradeColor(result.grade) }}>
+                        {result.grade}
                       </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div style={styles.card} className="card-hover">
-                <div style={styles.cardLabel}>Performance Score</div>
-                <div style={styles.cardValue}>{Math.round(result.performance_score)}/100</div>
-                <div style={styles.cardSub}>{getScoreExplanation(result.performance_score)}</div>
-              </div>
-
-              <ResultCard label="Load Time" value={`${result.load_time_ms} ms`} sub="Total response time" />
-              <ResultCard label="Page Size" value={`${(result.content_length / 1024).toFixed(2)} KB`} sub="Payload size" />
-              <ResultCard label="Status" value={result.status} sub="HTTP response code" />
-
-              {/* V2: Scan Method Badge */}
-              <div style={styles.card} className="card-hover">
-                <div style={styles.cardLabel}>Scan Method</div>
-                <div style={{
-                  ...styles.cardValue,
-                  fontSize: '1.3rem',
-                  color: result.scan_method === 'browser' ? '#4ade80' : '#fbbf24',
-                }}>
-                  {result.scan_method === 'browser' ? '🌐 Browser' : '📡 Legacy'}
-                </div>
-                <div style={styles.cardSub}>
-                  {result.scan_method === 'browser'
-                    ? 'Accurate browser-based analysis'
-                    : 'Standard HTTP request scan'}
-                </div>
-              </div>
-
-              <div style={styles.bugsSection}>
-                <h3 style={styles.sectionTitle}>Detected Issues / Bugs</h3>
-                {result.bugs.length > 0 ? (
-                  <ul style={styles.bugList}>
-                    {result.bugs.map((bug, i) => (
-                      <li key={i} style={styles.bugItem}>⚠️ {bug}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p style={styles.successText}>✅ No critical bugs detected!</p>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-
-        <div style={styles.layoutGroup}>
-          <div style={styles.mainContent}>
-            <section style={styles.aboutSection}>
-              <div style={styles.aboutContent}>
-                <div style={styles.avatarPlaceholder}>
-                  <img src="/ashwat.jpg" alt="Aashvath Singh" style={styles.avatarImg} />
-                </div>
-                <div style={styles.bio}>
-                  <h3 style={styles.bioTitle}>About the Creator</h3>
-                  <p style={styles.bioText}>
-                    Hi, I'm <strong>Aashvath Singh</strong>. I'm 10 years old and a student at <strong>Heritage Experiential School, Gurgaon</strong>.
-                    I love coding and science, and I designed this website to help people verify their websites quickly and safely.
-                  </p>
-                </div>
-              </div>
-
-
-
-              <div style={styles.ratingBox}>
-                <p style={styles.ratingTitle}>
-                  {ratingStatus.is_locked ? '🔒 Rating Locked' :
-                    (hasRated ? 'Thanks for your feedback!' : 'Rate our service')}
-                </p>
-
-                {ratingStatus.is_locked ? (
-                  <div style={{
-                    backgroundColor: '#451a1a',
-                    padding: '15px',
-                    borderRadius: '8px',
-                    border: '1px solid #7f1d1d',
-                    marginBottom: '15px'
-                  }}>
-                    <p style={{ color: '#fca5a5', margin: 0, fontSize: '0.9rem' }}>
-                      ⚠️ {lockMessage || 'Your rating privileges have been permanently locked.'}
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <div style={{ ...styles.stars, cursor: 'pointer' }}>
-                      {[1, 2, 3, 4, 5].map((s) => (
-                        <span
-                          key={s}
-                          onClick={() => { playClick(); handleStarClick(s); }}
-                          style={{
-                            ...styles.star,
-                            color: s <= selectedStars ? '#fbbf24' : '#475569',
-                            opacity: 1
-                          }}
-                        >
-                          ★
-                        </span>
-                      ))}
+                      <div style={styles.statusTextContainer}>
+                        <h2 style={styles.statusHeadline}>{result.safety_status}</h2>
+                        {result.safety_reasons.length > 0 && <p style={styles.statusSubline}>{result.safety_reasons.join(' | ')}</p>}
+                      </div>
                     </div>
 
-                    {ratingStatus.needs_pin && !isPinVerified && (
-                      <p style={{
-                        color: '#fbbf24',
-                        fontSize: '0.8rem',
-                        marginTop: '8px',
-                        fontStyle: 'italic'
-                      }}>
-                        ⚠️ You've already rated. Enter admin PIN to rate again.
-                      </p>
-                    )}
-                  </>
-                )}
-
-                {hasRated && submittedFeedback && (
-                  <div style={styles.userComment}>
-                    <p style={styles.commentLabel}>Your feedback:</p>
-                    <p style={styles.commentText}>"{submittedFeedback}"</p>
-                  </div>
-                )}
-
-                <p style={styles.ratingStats}>
-                  {ratingStats.count > 0 ? `${ratingStats.average} (${ratingStats.count} reviews)` : 'No reviews yet'}
-                </p>
-              </div>
-            </section>
-          </div>
-        </div>
-
-        {recentScans.length > 0 && (
-          <section style={styles.historySection}>
-            <div style={styles.historyHeader}>
-              <div style={styles.historyHeaderRow}>
-                <div>
-                  <h3 style={styles.historyTitle}>Global Scan History</h3>
-                  <p style={styles.historySubtitle}>Click a website to view its scan history</p>
-                </div>
-                {/* V2: More Button */}
-                <button
-                  onClick={() => { playClick(); setShowSearchPage(true); }}
-                  onMouseEnter={playHoverSound}
-                  style={styles.moreButton}
-                >
-                  More →
-                </button>
-              </div>
-            </div>
-
-            {(() => {
-              const groupedScans = groupScansByHostname(recentScans);
-              const hostnames = Object.keys(groupedScans).sort((a, b) =>
-                getLatestTime(groupedScans[b]) - getLatestTime(groupedScans[a])
-              );
-
-              return (
-                <>
-                  {/* Desktop Table */}
-                  <div style={styles.tableWrapper} className="desktop-table">
-                    <table style={styles.table}>
-                      <thead>
-                        <tr>
-                          <th style={styles.th}>Website</th>
-                          <th style={styles.th}>Total Scans</th>
-                          <th style={styles.th}>Kids Safety</th>
-                          <th style={styles.th}>Latest Grade</th>
-                          <th style={styles.th}>Latest Score</th>
-                          <th style={styles.th}>Last Scan</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {hostnames.map((hostname) => {
-                          const scans = groupedScans[hostname];
-                          const isExpanded = expandedSite === hostname;
-                          return (
-                            <React.Fragment key={hostname}>
-                              <tr
-                                style={{
-                                  ...styles.tr,
-                                  cursor: 'pointer',
-                                  backgroundColor: isExpanded ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-                                  transition: 'all 0.2s ease',
-                                }}
-                                onClick={() => { playClick(); setExpandedSite(isExpanded ? null : hostname); }}
-                                onMouseEnter={playHoverSound}
-                                className="website-row premium-row"
-                              >
-                                <td style={{ ...styles.td, fontWeight: '600' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{
-                                      transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                                      transition: 'transform 0.2s',
-                                      color: '#38bdf8'
-                                    }}>▶</span>
-                                    <span style={{ color: '#f8fafc' }}>{hostname}</span>
-                                  </div>
-                                </td>
-                                <td style={styles.td}>
-                                  <span style={styles.scanCount}>{scans.length}</span>
-                                </td>
-                                {/* V2: Kids Safety Column */}
-                                <td style={styles.td}>
-                                  {(() => {
-                                    const latest = getLatestKidsSafety(scans);
-                                    if (!latest) return <span style={{ color: '#64748b' }}>-</span>;
-                                    return (
-                                      <span
-                                        style={{
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '6px',
-                                          padding: '4px 10px',
-                                          borderRadius: '20px',
-                                          fontSize: '0.75rem',
-                                          fontWeight: '600',
-                                          backgroundColor: getSafetyColor(latest.kids_safety_rating) + '20',
-                                          color: getSafetyColor(latest.kids_safety_rating),
-                                          border: `1px solid ${getSafetyColor(latest.kids_safety_rating)}40`,
-                                        }}
-                                        title={`Safety Score: ${latest.kids_safety_score}/100`}
-                                      >
-                                        {getSafetyEmoji(latest.kids_safety_rating)} {latest.kids_safety_rating?.replace(/_/g, ' ')}
-                                      </span>
-                                    );
-                                  })()}
-                                </td>
-                                <td style={styles.td}>
-                                  {(() => {
-                                    const grade = getBestGrade(scans);
-                                    return grade !== '-' ? (
-                                      <span style={{
-                                        ...styles.gradeTag,
-                                        backgroundColor: getGradeColor(grade),
-                                        color: '#0f172a'
-                                      }}>
-                                        {grade}
-                                      </span>
-                                    ) : (
-                                      <span style={{ color: '#64748b' }}>-</span>
-                                    );
-                                  })()}
-                                </td>
-                                <td style={styles.td}>
-                                  {(() => {
-                                    const score = getLatestScore(scans);
-                                    return score ? (
-                                      <span style={{
-                                        color: score >= 90 ? '#4ade80' : score >= 50 ? '#fbbf24' : '#f87171',
-                                        fontWeight: '600'
-                                      }}>
-                                        {Math.round(score)}
-                                      </span>
-                                    ) : '-';
-                                  })()}
-                                </td>
-                                <td style={{ ...styles.td, color: '#64748b', fontSize: '0.85rem' }}>
-                                  {formatRelativeTime(getLatestTime(scans))}
-                                </td>
-                              </tr>
-                              {isExpanded && (
-                                <tr>
-                                  <td colSpan="5" style={{ padding: 0, border: 'none' }}>
-                                    <div style={styles.scanHistoryPanel}>
-                                      <div style={styles.scanHistoryHeader}>Scan History for {hostname}</div>
-                                      <table style={styles.historyTable}>
-                                        <thead>
-                                          <tr>
-                                            <th style={styles.historyTh}>Date</th>
-                                            <th style={styles.historyTh}>Grade</th>
-                                            <th style={styles.historyTh}>Score</th>
-                                            <th style={styles.historyTh}>Visitor</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody>
-                                          {[...scans].sort((a, b) => b.timestamp - a.timestamp).map((scan) => (
-                                            <tr key={scan.id} style={styles.historyTr}>
-                                              <td style={styles.historyTd}>
-                                                {new Date(scan.timestamp * 1000).toLocaleString()}
-                                              </td>
-                                              <td style={styles.historyTd}>
-                                                {scan.grade && scan.grade !== 'N/A' ? (
-                                                  <span style={{
-                                                    ...styles.gradeTag,
-                                                    backgroundColor: getGradeColor(scan.grade),
-                                                    color: '#0f172a',
-                                                    fontSize: '0.7rem'
-                                                  }}>
-                                                    {scan.grade}
-                                                  </span>
-                                                ) : '-'}
-                                              </td>
-                                              <td style={styles.historyTd}>
-                                                {scan.score ? (
-                                                  <span style={{
-                                                    color: scan.score >= 90 ? '#4ade80' : scan.score >= 50 ? '#fbbf24' : '#f87171'
-                                                  }}>
-                                                    {Math.round(scan.score)}
-                                                  </span>
-                                                ) : '-'}
-                                              </td>
-                                              <td style={styles.historyTd}>{scan.visitor_name || 'Anonymous'}</td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
-                                    </div>
-                                  </td>
-                                </tr>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Mobile Cards */}
-                  <div className="mobile-cards">
-                    {hostnames.map((hostname) => {
-                      const scans = groupedScans[hostname];
-                      const isExpanded = expandedSite === hostname;
-                      const latestGrade = getBestGrade(scans);
-                      return (
-                        <div key={hostname} className="mobile-website-card">
-                          <div
-                            className="mobile-website-header"
-                            onClick={() => { playClick(); setExpandedSite(isExpanded ? null : hostname); }}
-                            onMouseEnter={playHoverSound}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'space-between',
-                              padding: '16px',
-                              backgroundColor: isExpanded ? 'rgba(56, 189, 248, 0.15)' : 'rgba(30, 41, 59, 0.4)',
-                              borderRadius: '12px',
-                              cursor: 'pointer',
-                              border: '1px solid rgba(255,255,255,0.1)',
-                              marginBottom: isExpanded ? '0' : '12px',
-                              transition: 'all 0.2s ease',
-                              boxShadow: isExpanded ? '0 4px 20px rgba(56, 189, 248, 0.2)' : '0 2px 8px rgba(0,0,0,0.2)',
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                              <span style={{
-                                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
-                                transition: 'transform 0.2s',
-                                color: '#38bdf8'
-                              }}>▶</span>
-                              <div>
-                                <div style={{ color: '#f8fafc', fontWeight: '600' }}>{hostname}</div>
-                                <div style={{ color: '#64748b', fontSize: '0.8rem' }}>
-                                  {scans.length} scan{scans.length > 1 ? 's' : ''}
-                                </div>
-                              </div>
-                            </div>
-                            {latestGrade !== '-' && (
-                              <span style={{
-                                ...styles.gradeTag,
-                                backgroundColor: getGradeColor(latestGrade),
-                                color: '#0f172a',
-                                fontSize: '0.75rem'
-                              }}>
-                                {latestGrade}
-                              </span>
-                            )}
+                    <div style={styles.resultGrid}>
+                      {result.kids_safety && (
+                        <div style={{ ...styles.card, borderColor: result.kids_safety.display?.color || '#6b7280', borderWidth: '2px' }} className="card-hover">
+                          <div style={styles.cardLabel}>👶 Kids Safety</div>
+                          <div style={{ ...styles.cardValue, color: result.kids_safety.display?.color || '#6b7280' }}>
+                            {result.kids_safety.display?.emoji} {result.kids_safety.display?.label}
                           </div>
-
-                          {isExpanded && (
-                            <div style={styles.mobileHistoryPanel}>
-                              {[...scans].sort((a, b) => b.timestamp - a.timestamp).map((scan, idx) => (
-                                <div key={scan.id} style={{
-                                  padding: '12px 16px',
-                                  borderBottom: idx < scans.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                                  backgroundColor: 'rgba(15, 23, 42, 0.5)'
-                                }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                                    <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
-                                      {new Date(scan.timestamp * 1000).toLocaleDateString()}
-                                    </span>
-                                    {scan.grade && scan.grade !== 'N/A' ? (
-                                      <span style={{
-                                        ...styles.gradeTag,
-                                        backgroundColor: getGradeColor(scan.grade),
-                                        color: '#0f172a',
-                                        fontSize: '0.65rem',
-                                        padding: '2px 6px'
-                                      }}>
-                                        {scan.grade}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                    <span style={{ color: '#64748b', fontSize: '0.8rem' }}>
-                                      {scan.visitor_name || 'Anonymous'}
-                                    </span>
-                                    {scan.score && (
-                                      <span style={{
-                                        color: scan.score >= 90 ? '#4ade80' : scan.score >= 50 ? '#fbbf24' : '#f87171',
-                                        fontSize: '0.85rem'
-                                      }}>
-                                        {Math.round(scan.score)}
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                          <div style={styles.cardSub}>Confidence: {result.kids_safety.confidence}</div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </>
-              );
-            })()}
-          </section>
-        )}
+                      )}
+                      <ResultCard label="Performance" value={`${Math.round(result.performance_score)}/100`} sub={getScoreExplanation(result.performance_score)} />
+                      <ResultCard label="Load Time" value={`${result.load_time_ms} ms`} sub="Total response" />
+                      
+                      <Link to={`/pages/${new URL(result.url).hostname.replace('www.', '')}`} style={{ ...styles.card, textDecoration: 'none', border: '1px solid #38bdf8' }} className="card-hover">
+                        <div style={{ ...styles.cardLabel, color: '#38bdf8' }}>Full Analysis</div>
+                        <div style={{ ...styles.cardValue, color: '#38bdf8', fontSize: '1.2rem' }}>Detailed History →</div>
+                      </Link>
+                    </div>
 
-        {recentFeedback.length > 0 && (
-          <section style={{ ...styles.historySection, marginTop: '40px' }}>
-            <div style={styles.historyHeader}>
-              <h3 style={styles.historyTitle}>Community Feedback</h3>
-              <p style={styles.historySubtitle}>What people are saying about Fast Scanner</p>
-            </div>
-
-            <div style={styles.feedbackGrid}>
-              {recentFeedback.map((item) => (
-                <div key={item.id} style={styles.feedbackCard}>
-                  <div style={styles.feedbackHeader}>
-                    <div style={styles.feedbackUser}>
-                      <div style={styles.feedbackAvatar}>{item.visitor_name.charAt(0)}</div>
-                      <div>
-                        <div style={styles.feedbackName}>{item.visitor_name}</div>
-                        <div style={styles.feedbackTime}>{formatRelativeTime(item.timestamp)}</div>
+                    {result.bugs && result.bugs.length > 0 && (
+                      <div style={styles.bugsSection}>
+                        <h3 style={styles.sectionTitle}>Detected Issues</h3>
+                        <ul style={styles.bugList}>
+                          {result.bugs.map((bug, i) => <li key={i} style={styles.bugItem}>⚠️ {bug}</li>)}
+                        </ul>
                       </div>
-                    </div>
-                    <div style={styles.feedbackStars}>
-                      {'★'.repeat(item.rating)}
-                      <span style={{ color: '#334155' }}>{'★'.repeat(5 - item.rating)}</span>
-                    </div>
-                  </div>
-                  <div style={styles.feedbackMsg}>"{item.comment}"</div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {showModal && (
-          <div style={styles.modalOverlay}>
-            <div style={styles.modal}>
-              <div style={styles.modalIcon}>{getEmotionalIcon(selectedStars)}</div>
-              <h2 style={styles.modalTitle}>
-                We value your feedback!
-              </h2>
-              <p style={styles.modalSub}>You selected {selectedStars} stars. Tell us more (min 3 words):</p>
-
-              <input
-                type="text"
-                style={styles.modalInput}
-                placeholder={visitorName}
-                value={visitorName}
-                onChange={(e) => setVisitorName(e.target.value)}
-              />
-
-              <textarea
-                style={styles.modalTextarea}
-                placeholder="Site looks great and works fast..."
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-              />
-
-              <div style={styles.captchaSection}>
-                <p style={styles.captchaQuestion}>🔒 Security Check: {captcha.question || 'Loading...'}</p>
-                <input
-                  type="text"
-                  placeholder="Your answer"
-                  style={styles.captchaInput}
-                  value={captchaAnswer}
-                  onChange={(e) => setCaptchaAnswer(e.target.value)}
-                />
-              </div>
-
-              <div style={styles.modalActions}>
-                <button onClick={() => { playClick(); setShowModal(false); setFeedback(''); }} onMouseEnter={playHoverSound} style={styles.cancelBtn}>Cancel</button>
-                <button onClick={submitRating} onMouseEnter={playHoverSound} style={styles.saveBtn}>
-                  Submit Review
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* PIN Verification Modal - SECURITY THEME */}
-        {showPinModal && (
-          <div style={styles.pinModalOverlay}>
-            <div style={styles.pinModal}>
-              <div style={styles.pinIcon}>🔐</div>
-              <h2 style={styles.pinTitle}>🔒 Admin PIN Required</h2>
-              <div style={styles.pinWarningBox}>
-                <p style={styles.pinWarningText}>
-                  ⚠️ <strong>SECURITY WARNING</strong><br />
-                  You've already submitted a rating.<br />
-                  Enter the admin PIN to rate again.<br />
-                  <span style={{ color: '#fca5a5' }}>
-                    Wrong PIN = Permanent Lock!
-                  </span>
-                </p>
-              </div>
-
-              {/* Attempts Counter */}
-              <div style={styles.pinAttemptsBox}>
-                <span style={{
-                  color: ratingStatus.pin_attempts_remaining === 1 ? '#ef4444' : '#fbbf24',
-                  fontWeight: '700',
-                  fontSize: '1rem'
-                }}>
-                  Attempt {ratingStatus.pin_attempts + 1} of 3
-                </span>
-                <span style={{ color: '#94a3b8', fontSize: '0.85rem', display: 'block', marginTop: '4px' }}>
-                  {ratingStatus.pin_attempts_remaining} attempt(s) remaining
-                </span>
-              </div>
-
-              {/* Error Message */}
-              {pinError && (
-                <div style={styles.pinErrorBox}>
-                  {pinError}
-                </div>
-              )}
-
-              <input
-                type="password"
-                style={styles.pinInput}
-                placeholder="Enter admin PIN"
-                value={pinInput}
-                onChange={(e) => setPinInput(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    verifyPin();
-                  }
-                }}
-              />
-
-              <div style={styles.pinActions}>
-                <button onClick={() => { playClick(); setShowPinModal(false); setPinInput(''); setPinError(''); }} onMouseEnter={playHoverSound} style={styles.pinCancelBtn}>Cancel</button>
-                <button onClick={verifyPin} onMouseEnter={playHoverSound} style={styles.pinVerifyBtn}>
-                  🔓 Verify PIN
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Kids Safe - 18+ Content Warning Modal */}
-        {showKidsSafeModal && (
-          <div style={styles.kidsSafeOverlay}>
-            <div style={styles.kidsSafeModal}>
-              <div style={styles.kidsSafeIcon}>🔞</div>
-              <h2 style={styles.kidsSafeTitle}>⚠️ Kids Safe Warning</h2>
-
-              <div style={styles.kidsSafeAlert}>
-                <p style={{ margin: 0, fontSize: '1.1rem', fontWeight: '700' }}>
-                  This website may contain Adult (18+) content
-                </p>
-              </div>
-
-              <div style={styles.kidsSafeDetails}>
-                <p style={{ margin: '0 0 8px 0', color: '#94a3b8' }}>
-                  <strong>URL:</strong> {kidsSafeData.url}
-                </p>
-                <p style={{ margin: '0 0 8px 0', color: '#94a3b8' }}>
-                  <strong>Title:</strong> {kidsSafeData.title}
-                </p>
-                {kidsSafeData.reasons && kidsSafeData.reasons.length > 0 && (
-                  <div style={{ marginTop: '12px' }}>
-                    <p style={{ margin: '0 0 4px 0', color: '#fbbf24', fontSize: '0.85rem' }}>
-                      Detected indicators:
-                    </p>
-                    <ul style={{ margin: 0, paddingLeft: '20px', color: '#fca5a5', fontSize: '0.85rem' }}>
-                      {kidsSafeData.reasons.map((reason, idx) => (
-                        <li key={idx}>{reason}</li>
-                      ))}
-                    </ul>
+                    )}
                   </div>
                 )}
-              </div>
 
-              <div style={styles.kidsSafeMessage}>
-                <p style={{ margin: 0 }}>
-                  🛡️ <strong>Kids Safe Mode:</strong> This website has been flagged as potentially containing
-                  adult or mature content that may not be appropriate for children under 18.
-                </p>
-              </div>
+                <div style={styles.layoutGroup}>
+                  <section style={styles.aboutSection}>
+                    <div style={styles.aboutContent}>
+                      <img src="/ashwat.jpg" alt="Aashvath Singh" style={styles.avatarImg} onError={(e) => e.target.style.display='none'} />
+                      <div style={styles.bio}>
+                        <h3 style={styles.bioTitle}>Aashvath Singh</h3>
+                        <p style={styles.bioText}>10-year-old developer from Heritage Experiential School, Gurgaon.</p>
+                      </div>
+                    </div>
+                  </section>
+                </div>
 
-              <div style={styles.kidsSafeQuestion}>
-                Do you want to proceed with scanning this website?
-              </div>
+                {recentScans.length > 0 && (
+                  <section style={styles.historySection}>
+                    <div style={styles.historyHeaderRow}>
+                      <h3 style={styles.historyTitle}>Recent Intelligence</h3>
+                      <button onClick={() => setShowSearchPage(true)} style={styles.moreButton}>Search More →</button>
+                    </div>
+                    <div style={styles.tableWrapper}>
+                      <table style={styles.table}>
+                        <thead>
+                          <tr>
+                            <th>Website</th>
+                            <th>Grade</th>
+                            <th>Score</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(groupScansByHostname(recentScans)).slice(0, 10).map(([hostname, scans]) => (
+                            <tr key={hostname} style={styles.tr}>
+                              <td style={styles.td}>{hostname}</td>
+                              <td style={styles.td}>
+                                <span style={{ ...styles.gradeTag, backgroundColor: getGradeColor(getBestGrade(scans)) }}>
+                                  {getBestGrade(scans)}
+                                </span>
+                              </td>
+                              <td style={styles.td}>{getLatestScore(scans) || '-'}</td>
+                              <td style={styles.td}>
+                                <Link to={`/pages/${hostname}`} style={styles.viewBtn}>View Page</Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                )}
 
-              <div style={styles.kidsSafeActions}>
-                <button
-                  onClick={() => {
-                    playClick();
-                    setShowKidsSafeModal(false);
-                    setPendingUrl('');
-                    setLoading(false);
-                  }}
-                  onMouseEnter={playHoverSound}
-                  style={styles.kidsSafeCancelBtn}
-                >
-                  ❌ No, Cancel Scan
-                </button>
-                <button
-                  onClick={() => {
-                    playClick();
-                    proceedWithScan(pendingUrl, pendingVisitorName);
-                  }}
-                  onMouseEnter={playHoverSound}
-                  style={styles.kidsSafeProceedBtn}
-                >
-                  ⚠️ Yes, Proceed Anyway
-                </button>
-              </div>
+                <section style={{ ...styles.historySection, padding: '30px' }}>
+                  <h3 style={styles.historyTitle}>Device Intelligence</h3>
+                  <div style={styles.chartContainer}>
+                    <DeviceBar label="Desktop" count={deviceStats.laptop} total={deviceStats.total} color="#38bdf8" />
+                    <DeviceBar label="Mobile" count={deviceStats.phone} total={deviceStats.total} color="#4ade80" />
+                    <DeviceBar label="Tablet" count={deviceStats.ipad} total={deviceStats.total} color="#a855f7" />
+                  </div>
+                </section>
+              </main>
+
+              <footer style={styles.footer}>
+                <p>Built with ❤️ by Aashvath Singh</p>
+              </footer>
+            </div>
+          )
+        } />
+      </Routes>
+      
+      {/* Shared Modals */}
+      {showModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <h2>Rate Website</h2>
+            <textarea value={feedback} onChange={(e) => setFeedback(e.target.value)} style={styles.modalInput} />
+            <div style={styles.modalActions}>
+              <button onClick={() => setShowModal(false)}>Cancel</button>
+              <button onClick={submitRating}>Submit</button>
             </div>
           </div>
-        )}
-
-        {/* Name Input Modal - Before Scan */}
-        {showNameModal && (
-          <div style={styles.nameModalOverlay}>
-            <div style={styles.nameModal}>
-              <div style={styles.nameModalIcon}>👋</div>
-              <h2 style={styles.nameModalTitle}>Who's Scanning?</h2>
-              <p style={styles.nameModalText}>
-                Enter your name for this scan, or we'll generate a fun random name for you!
-              </p>
-              <input
-                type="text"
-                placeholder={scanVisitorName}
-                value={scanVisitorName}
-                onChange={(e) => setScanVisitorName(e.target.value)}
-                style={styles.nameModalInput}
-                onKeyPress={(e) => e.key === 'Enter' && proceedWithNameAndScan()}
-              />
-              <div style={styles.nameModalHint}>
-                💡 Press Enter or click Continue to start scanning
-              </div>
-              <div style={styles.nameModalActions}>
-                <button
-                  onClick={() => { playClick(); setShowNameModal(false); setPendingScanUrl(''); }}
-                  style={styles.nameModalCancel}
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => { playClick(); proceedWithNameAndScan(); }}
-                  style={styles.nameModalConfirm}
-                >
-                  Continue Scan 🚀
-                </button>
-              </div>
+        </div>
+      )}
+      
+      {showKidsSafeModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <h2 style={{ color: '#ef4444' }}>⚠️ Content Warning</h2>
+            <p>{kidsSafeData.message}</p>
+            <div style={styles.modalActions}>
+              <button onClick={() => setShowKidsSafeModal(false)}>Exit</button>
+              <button onClick={() => proceedWithScan(pendingUrl, pendingVisitorName)} style={{ backgroundColor: '#ef4444' }}>Proceed</button>
             </div>
           </div>
-        )}
-      </main>
+        </div>
+      )}
 
-      <footer style={styles.footer}>
-        <p>Built with ❤️ by Aashvath Singh</p>
-      </footer>
-    </div>
+      {showNameModal && (
+        <div style={styles.modalOverlay}>
+          <div style={styles.modal}>
+            <h2>Scanner Name</h2>
+            <input type="text" value={scanVisitorName} onChange={(e) => setScanVisitorName(e.target.value)} style={styles.modalInput} />
+            <button onClick={proceedWithNameAndScan}>Start Scan</button>
+          </div>
+        </div>
+      )}
+    </Router>
   );
 }
+
+const DeviceBar = ({ label, count, total, color }) => {
+  const percentage = total > 0 ? (count / total) * 100 : 0;
+  return (
+    <div style={styles.deviceBarWrapper}>
+      <div style={styles.deviceBarInfo}>
+        <span style={styles.deviceBarLabel}>{label}</span>
+        <span style={styles.deviceBarCount}>{count} users ({percentage.toFixed(1)}%)</span>
+      </div>
+      <div style={styles.deviceBarTrack}>
+        <div style={{
+          ...styles.deviceBarFill,
+          width: `${percentage}%`,
+          backgroundColor: color,
+          boxShadow: `0 0 15px ${color}50`
+        }} />
+      </div>
+    </div>
+  );
+};
 
 const ResultCard = ({ label, value, sub }) => (
   <div style={styles.card} className="card-hover">
@@ -2075,6 +1472,225 @@ const styles = {
     gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
     gap: '16px',
   },
+  chartContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '20px',
+    marginTop: '10px',
+  },
+  deviceBarWrapper: {
+    width: '100%',
+  },
+  deviceBarInfo: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginBottom: '8px',
+    fontSize: '0.9rem',
+  },
+  deviceBarLabel: {
+    fontWeight: '600',
+    color: '#f8fafc',
+  },
+  deviceBarCount: {
+    color: '#94a3b8',
+  },
+  deviceBarTrack: {
+    width: '100%',
+    height: '12px',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: '10px',
+    overflow: 'hidden',
+  },
+  deviceBarFill: {
+    height: '100%',
+    borderRadius: '10px',
+    transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)',
+  },
+  deviceOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(2, 6, 23, 0.95)',
+    zIndex: 10000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '20px',
+    backdropFilter: 'blur(20px)',
+  },
+  deviceModal: {
+    backgroundColor: '#1e293b',
+    padding: '40px',
+    borderRadius: '32px',
+    maxWidth: '600px',
+    width: '100%',
+    textAlign: 'center',
+    border: '1px solid rgba(56, 189, 248, 0.2)',
+    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 1)',
+  },
+  deviceHeader: {
+    marginBottom: '32px',
+  },
+  deviceIcon: {
+    fontSize: '3rem',
+    marginBottom: '16px',
+  },
+  deviceTitle: {
+    fontSize: '2.2rem',
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: '10px',
+    letterSpacing: '-0.02em',
+  },
+  deviceSub: {
+    color: '#94a3b8',
+    fontSize: '1.1rem',
+  },
+  deviceGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: '20px',
+    marginBottom: '30px',
+  },
+  deviceBtn: {
+    backgroundColor: 'rgba(30, 41, 59, 0.5)',
+    border: '2px solid rgba(255,255,255,0.1)',
+    borderRadius: '24px',
+    padding: '30px 20px',
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '12px',
+    transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+  },
+  deviceEmoji: {
+    fontSize: '3rem',
+  },
+  deviceLabel: {
+    fontWeight: '700',
+    fontSize: '1.1rem',
+    color: '#f8fafc',
+  },
+  deviceNote: {
+    color: '#64748b',
+    fontSize: '0.85rem',
+    marginTop: '20px',
+  },
+  noChangeBtn: {
+    backgroundColor: 'transparent',
+    border: '1px solid rgba(255,255,255,0.1)',
+    color: '#64748b',
+    padding: '10px 20px',
+    borderRadius: '12px',
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    transition: 'all 0.2s',
+  },
+  changeDeviceBtn: {
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    border: '1px solid rgba(56, 189, 248, 0.3)',
+    color: '#38bdf8',
+    padding: '12px 24px',
+    borderRadius: '16px',
+    cursor: 'pointer',
+    fontWeight: '700',
+    transition: 'all 0.2s',
+  },
+  closeModalBtn: {
+    backgroundColor: '#334155',
+    color: '#fff',
+    border: 'none',
+    padding: '12px 24px',
+    borderRadius: '16px',
+    cursor: 'pointer',
+    marginTop: '20px',
+    fontWeight: '600',
+  },
+  pinModalOverlay: {
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    zIndex: 11000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backdropFilter: 'blur(10px)',
+  },
+  pinModal: {
+    backgroundColor: '#1e293b',
+    padding: '40px',
+    borderRadius: '24px',
+    maxWidth: '450px',
+    width: '100%',
+    textAlign: 'center',
+    border: '1px solid rgba(239, 68, 68, 0.2)',
+  },
+  pinIcon: {
+    fontSize: '3rem',
+    marginBottom: '16px',
+  },
+  pinTitle: {
+    fontSize: '1.5rem',
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: '12px',
+  },
+  pinSub: {
+    color: '#94a3b8',
+    fontSize: '1rem',
+    marginBottom: '24px',
+  },
+  pinErrorBox: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    color: '#ef4444',
+    padding: '12px',
+    borderRadius: '10px',
+    marginBottom: '20px',
+    fontSize: '0.9rem',
+    border: '1px solid rgba(239, 68, 68, 0.2)',
+  },
+  pinInput: {
+    width: '100%',
+    padding: '16px',
+    borderRadius: '12px',
+    backgroundColor: '#0f172a',
+    border: '1px solid #334155',
+    color: '#fff',
+    fontSize: '1.5rem',
+    textAlign: 'center',
+    letterSpacing: '0.5em',
+    marginBottom: '24px',
+    outline: 'none',
+  },
+  pinActions: {
+    display: 'flex',
+    gap: '12px',
+  },
+  pinCancelBtn: {
+    flex: 1,
+    padding: '12px',
+    borderRadius: '10px',
+    border: '1px solid #334155',
+    backgroundColor: 'transparent',
+    color: '#94a3b8',
+    cursor: 'pointer',
+  },
+  pinVerifyBtn: {
+    flex: 2,
+    padding: '12px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#38bdf8',
+    color: '#0f172a',
+    fontWeight: '800',
+    cursor: 'pointer',
+  },
   card: {
     background: 'rgba(30, 41, 59, 0.4)',
     backdropFilter: 'blur(8px)',
@@ -2610,141 +2226,6 @@ const styles = {
     zIndex: 5000,
     padding: '20px',
     backdropFilter: 'blur(15px)',
-  },
-  deviceModal: {
-    maxWidth: '900px',
-    width: '100%',
-    padding: '60px 40px',
-    borderRadius: '40px',
-    textAlign: 'center',
-    border: '1px solid rgba(56, 189, 248, 0.2)',
-  },
-  deviceTitle: {
-    fontSize: '2.5rem',
-    fontWeight: '800',
-    marginBottom: '12px',
-    background: 'linear-gradient(135deg, #fff 0%, #94a3b8 100%)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-  },
-  deviceSubtitle: {
-    fontSize: '1.1rem',
-    color: '#94a3b8',
-    marginBottom: '48px',
-  },
-  deviceGrid: {
-    display: 'flex',
-    gap: '24px',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-  },
-  deviceOption: {
-    flex: '1 1 240px',
-    maxWidth: '280px',
-    backgroundColor: 'rgba(30, 41, 59, 0.4)',
-    padding: '40px 24px',
-    borderRadius: '32px',
-    border: '1px solid rgba(255, 255, 255, 0.05)',
-    cursor: 'pointer',
-    transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
-  },
-  deviceIcon: {
-    fontSize: '4rem',
-    marginBottom: '20px',
-  },
-  deviceName: {
-    fontSize: '1.5rem',
-    fontWeight: '700',
-    marginBottom: '8px',
-    color: '#f8fafc',
-  },
-  deviceDesc: {
-    fontSize: '0.9rem',
-    color: '#64748b',
-    lineHeight: '1.4',
-  },
-  deviceFooter: {
-    marginTop: '48px',
-    fontSize: '0.85rem',
-    color: '#475569',
-    fontStyle: 'italic',
-  },
-  deviceSwitch: {
-    position: 'absolute',
-    top: '20px',
-    right: '20px',
-    padding: '8px 16px',
-    backgroundColor: 'rgba(30, 41, 59, 0.6)',
-    borderRadius: '20px',
-    fontSize: '0.8rem',
-    color: '#38bdf8',
-    cursor: 'pointer',
-    border: '1px solid rgba(56, 189, 248, 0.2)',
-    transition: 'all 0.2s',
-    zIndex: 100,
-  },
-  // Container specializations
-  laptopContainer: {
-    maxWidth: '1400px',
-  },
-  ipadContainer: {
-    maxWidth: '900px',
-    margin: '0 auto',
-    padding: '20px',
-  },
-  phoneContainer: {
-    maxWidth: '480px',
-    margin: '0 auto',
-    padding: '15px',
-  },
-  // Global Device Usage Table Styles
-  deviceStatsTable: {
-    backgroundColor: 'rgba(30, 41, 59, 0.4)',
-    backdropFilter: 'blur(10px)',
-    border: '1px solid rgba(56, 189, 248, 0.15)',
-    borderRadius: '20px',
-    padding: '24px',
-    margin: '20px auto 40px auto',
-    maxWidth: '600px',
-    boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)',
-  },
-  deviceTableTitle: {
-    fontSize: '0.9rem',
-    fontWeight: '700',
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    marginBottom: '20px',
-    textAlign: 'center',
-  },
-  deviceTableGrid: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-  },
-  deviceTableRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '16px',
-  },
-  deviceTypeLabel: {
-    width: '100px',
-    fontSize: '0.9rem',
-    fontWeight: '600',
-    color: '#f8fafc',
-    textAlign: 'left',
-  },
-  deviceTypeBar: {
-    flex: 1,
-    height: '8px',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: '4px',
-    overflow: 'hidden',
-  },
-  deviceTypeProgress: {
-    height: '100%',
-    borderRadius: '4px',
-    transition: 'width 1s cubic-bezier(0.34, 1.56, 0.64, 1)',
   },
   deviceTypeCount: {
     width: '40px',

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 
 // Helper to extract domain from any URL format
 // Normalizes www and non-www to be the same (but keeps subdomains like xy.abc.com)
@@ -282,7 +283,9 @@ const SearchPage = ({ onBack, onScanNew }) => {
             {results.map((site) => (
               <div key={site.id} style={styles.resultCard}>
                 <div style={styles.resultHeader}>
-                  <div style={styles.resultUrl}>{site.url}</div>
+                  <Link to={`/pages/${extractDomain(site.url)}`} style={styles.resultUrl}>
+                    {site.url}
+                  </Link>
                   <div style={styles.resultBadges}>
                     {site.kids_safety?.rating && (
                       <span
@@ -344,6 +347,9 @@ const SearchPage = ({ onBack, onScanNew }) => {
                   <span style={styles.scanMethod}>
                     {site.scan_method === 'browser' ? '🌐 Browser Scan' : '📡 Legacy Scan'}
                   </span>
+                  <Link to={`/pages/${extractDomain(site.url)}`} style={styles.detailsBtn}>
+                    View Intel →
+                  </Link>
                 </div>
               </div>
             ))}
@@ -729,6 +735,21 @@ const styles = {
   scanMethod: {
     fontSize: '0.8rem',
     color: '#64748b',
+  },
+  detailsBtn: {
+    padding: '8px 16px',
+    borderRadius: '10px',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    color: '#38bdf8',
+    textDecoration: 'none',
+    fontSize: '0.85rem',
+    fontWeight: '600',
+    transition: 'all 0.2s',
+    border: '1px solid rgba(56, 189, 248, 0.2)',
+    ':hover': {
+      backgroundColor: '#38bdf8',
+      color: '#0f172a',
+    }
   },
   pagination: {
     display: 'flex',
