@@ -845,6 +845,76 @@ function App() {
                     <DeviceBar label="Tablet" count={deviceStats.ipad} total={deviceStats.total} color="#a855f7" />
                   </div>
                 </section>
+
+                <section style={styles.communitySection}>
+                  <div style={styles.communityGrid}>
+                    <div style={styles.feedbackFormWrapper}>
+                      <h3 style={styles.communityTitle}>❤️ Love Fast Scanner?</h3>
+                      <p style={styles.communitySub}>Help us improve by sharing your experience!</p>
+                      
+                      <div style={styles.quickStars}>
+                        {[1, 2, 3, 4, 5].map(star => (
+                          <span 
+                            key={star} 
+                            onClick={() => handleStarClick(star)}
+                            style={{ 
+                              ...styles.star, 
+                              fontSize: '2rem',
+                              filter: selectedStars >= star ? 'grayscale(0)' : 'grayscale(1)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            ⭐
+                          </span>
+                        ))}
+                      </div>
+
+                      <div style={styles.formEmbed}>
+                        <textarea 
+                          placeholder="What do you think about the platform? (Min 3 words)"
+                          value={feedback}
+                          onChange={(e) => setFeedback(e.target.value)}
+                          style={styles.mainFeedbackInput}
+                        />
+                        <div style={styles.miniCaptcha}>
+                          <span>Solve: {captcha.question}</span>
+                          <input 
+                            type="text" 
+                            placeholder="Ans"
+                            value={captchaAnswer}
+                            onChange={(e) => setCaptchaAnswer(e.target.value)}
+                            style={styles.miniCaptchaInput}
+                          />
+                        </div>
+                        <button 
+                          onClick={submitRating} 
+                          style={styles.submitExperienceBtn}
+                        >
+                          Share Experience →
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={styles.experienceWall}>
+                      <h3 style={styles.communityTitle}>Experience Wall</h3>
+                      <div style={styles.wallContent}>
+                        {recentFeedback.length === 0 ? (
+                          <p style={styles.noFeedback}>No stories shared yet. Be the first!</p>
+                        ) : (
+                          recentFeedback.slice(0, 6).map(f => (
+                            <div key={f.id} style={styles.experienceCard}>
+                              <div style={styles.experienceHeader}>
+                                <span style={styles.experienceName}>{f.visitor_name || 'Explorer'}</span>
+                                <span style={styles.experienceRating}>{'⭐'.repeat(f.rating)}</span>
+                              </div>
+                              <p style={styles.experienceText}>{f.comment}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </section>
               </main>
 
               <footer style={styles.footer}>
@@ -2234,6 +2304,135 @@ const styles = {
     color: '#38bdf8',
     textAlign: 'right',
   },
+  communitySection: {
+    width: '100%',
+    padding: '40px',
+    backgroundColor: 'rgba(15, 23, 42, 0.4)',
+    borderRadius: '32px',
+    border: '1px solid rgba(255,255,255,0.05)',
+    backdropFilter: 'blur(10px)',
+  },
+  communityGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
+    gap: '40px',
+  },
+  feedbackFormWrapper: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '15px',
+  },
+  communityTitle: {
+    fontSize: '1.5rem',
+    fontWeight: '800',
+    margin: 0,
+    color: '#fff',
+  },
+  communitySub: {
+    color: '#94a3b8',
+    fontSize: '0.95rem',
+    margin: 0,
+  },
+  quickStars: {
+    display: 'flex',
+    gap: '8px',
+    margin: '10px 0',
+  },
+  formEmbed: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    padding: '20px',
+    borderRadius: '20px',
+  },
+  mainFeedbackInput: {
+    backgroundColor: '#0f172a',
+    border: '1px solid #334155',
+    borderRadius: '12px',
+    padding: '12px',
+    color: '#fff',
+    minHeight: '80px',
+    outline: 'none',
+    fontSize: '0.9rem',
+  },
+  miniCaptcha: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    fontSize: '0.85rem',
+    color: '#38bdf8',
+    fontWeight: '600',
+  },
+  miniCaptchaInput: {
+    width: '60px',
+    padding: '8px',
+    borderRadius: '8px',
+    border: '1px solid #334155',
+    backgroundColor: '#0f172a',
+    color: '#fff',
+    textAlign: 'center',
+  },
+  submitExperienceBtn: {
+    backgroundColor: '#38bdf8',
+    color: '#0f172a',
+    border: 'none',
+    borderRadius: '12px',
+    padding: '12px',
+    fontWeight: '800',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    marginTop: '5px',
+  },
+  experienceWall: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '20px',
+  },
+  wallContent: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '15px',
+    overflowY: 'auto',
+    maxHeight: '400px',
+    paddingRight: '10px',
+  },
+  experienceCard: {
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
+    padding: '15px',
+    borderRadius: '16px',
+    border: '1px solid rgba(255,255,255,0.03)',
+  },
+  experienceHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginBottom: '8px',
+  },
+  experienceName: {
+    fontSize: '0.85rem',
+    fontWeight: '700',
+    color: '#38bdf8',
+  },
+  experienceRating: {
+    fontSize: '0.75rem',
+  },
+  experienceText: {
+    fontSize: '0.85rem',
+    color: '#cbd5e1',
+    lineHeight: '1.4',
+    margin: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    display: '-webkit-box',
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: 'vertical',
+  },
+  noFeedback: {
+    gridColumn: '1 / -1',
+    color: '#64748b',
+    textAlign: 'center',
+    padding: '40px',
+  }
 };
 
 export default App;
