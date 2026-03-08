@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import SearchPage from './SearchPage';
 import DomainPage from './DomainPage';
 import AboutPage from './AboutPage';
+import SpeedTest from './SpeedTest';
 
 function App() {
   const [url, setUrl] = useState('');
@@ -690,6 +691,7 @@ function App() {
       <Routes>
         <Route path="/pages/:domain" element={<DomainPage />} />
         <Route path="/about" element={<AboutPage />} />
+        <Route path="/speedtest" element={<SpeedTest />} />
         <Route path="/" element={
           showSearchPage ? (
             <SearchPage onBack={() => setShowSearchPage(false)} />
@@ -751,6 +753,16 @@ function App() {
                     {loading ? 'Analyzing...' : 'Launch Scan 🚀'}
                   </button>
                 </form>
+
+                <div className="animate-fade-in" style={{ ...styles.labRow, animationDelay: '0.4s' }}>
+                  <Link to="/speedtest" style={styles.labCard} className="glass-card card-hover">
+                    <div style={styles.labIcon}>⚡</div>
+                    <div style={styles.labContent}>
+                      <h3 style={styles.labTitle}>WiFi Speed Intelligence</h3>
+                      <p style={styles.labSub}>Test your local network performance →</p>
+                    </div>
+                  </Link>
+                </div>
 
                 {error && <div style={styles.errorCard}>{error}</div>}
 
@@ -1047,6 +1059,40 @@ const styles = {
     borderRadius: '50%',
     objectFit: 'cover',
     border: '1px solid #38bdf8',
+  },
+  labRow: {
+    width: '100%',
+    maxWidth: '600px',
+    marginBottom: '40px',
+  },
+  labCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '24px',
+    padding: '24px 30px',
+    backgroundColor: 'rgba(56, 189, 248, 0.05)',
+    borderRadius: '24px',
+    textDecoration: 'none',
+    border: '1px solid rgba(56, 189, 248, 0.2)',
+    transition: 'all 0.3s ease',
+  },
+  labIcon: {
+    fontSize: '2.5rem',
+  },
+  labContent: {
+    textAlign: 'left',
+  },
+  labTitle: {
+    margin: 0,
+    fontSize: '1.25rem',
+    fontWeight: '800',
+    color: '#fff',
+  },
+  labSub: {
+    margin: '4px 0 0 0',
+    fontSize: '0.9rem',
+    color: '#38bdf8',
+    fontWeight: '600',
   },
   title: {
     fontSize: 'clamp(2.5rem, 8vw, 3.5rem)',

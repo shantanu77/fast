@@ -177,6 +177,34 @@ with app.app_context():
     except Exception as e:
         print(f"DB init error: {e}")
 
+# Speedtest Endpoints
+@app.route('/api/speedtest/ping', methods=['GET'])
+def speedtest_ping():
+    return jsonify({"status": "ok", "timestamp": time.time()})
+
+@app.route('/api/speedtest/download', methods=['GET'])
+def speedtest_download():
+    # Allow requesting up to 10MB of dummy data
+    size_mb = min(float(request.args.get('size', 1)), 10)
+    data = "X" * int(size_mb * 1024 * 1024)
+    return data
+
+@app.route('/api/speedtest/upload', methods=['POST'])
+def speedtest_upload():
+    # Just receive the data and measure time
+    start_time = time.time()
+    _ = request.data
+    end_time = time.time()
+    
+    size_bytes = len(request.data)
+    duration = end_time - start_time
+    
+    return jsonify({
+        "size_bytes": size_bytes,
+        "duration_seconds": duration,
+        "mbps": (size_bytes * 8) / (duration * 1024 * 1024) if duration > 0 else 0
+    })
+
 # Store captchas with timestamps (id -> {solution, timestamp})
 captcha_store = {}
 CAPTCHA_EXPIRY_SECONDS = 600
