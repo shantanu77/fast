@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import SearchPage from './SearchPage';
 import DomainPage from './DomainPage';
+import AboutPage from './AboutPage';
 
 function App() {
   const [url, setUrl] = useState('');
@@ -688,19 +689,22 @@ function App() {
     <Router>
       <Routes>
         <Route path="/pages/:domain" element={<DomainPage />} />
+        <Route path="/about" element={<AboutPage />} />
         <Route path="/" element={
           showSearchPage ? (
             <SearchPage onBack={() => setShowSearchPage(false)} />
           ) : (
             <div style={styles.container}>
               <header style={styles.header}>
-                <div style={styles.badge} className="animate-fade-in">
-                  <div style={styles.badgeAvatarWrapper}>
-                    <img src="/ashwat.jpg" alt="Aashvath Singh" style={styles.miniAvatar} onError={(e) => e.target.style.display='none'} />
-                    <span style={styles.badgeIcon}>🛡️</span>
+                <Link to="/about" style={styles.badgeLink}>
+                  <div style={styles.badge} className="animate-fade-in card-hover">
+                    <div style={styles.badgeAvatarWrapper}>
+                      <img src="/ashwat.jpg" alt="Aashvath Singh" style={styles.miniAvatar} onError={(e) => e.target.style.display='none'} />
+                      <span style={styles.badgeIcon}>🛡️</span>
+                    </div>
+                    Trusted by Aashvath Singh
                   </div>
-                  Trusted by Aashvath Singh
-                </div>
+                </Link>
                 <h1 style={styles.title} className="animate-fade-in">Fast <span style={styles.accent}>Scanner</span></h1>
                 <p className="animate-fade-in" style={{ ...styles.subtitle, animationDelay: '0.1s' }}>High-performance website security and speed analysis.</p>
 
@@ -1014,6 +1018,13 @@ const styles = {
     marginBottom: '24px',
     border: '1px solid rgba(56, 189, 248, 0.2)',
     fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+  },
+  badgeLink: {
+    textDecoration: 'none',
+    color: 'inherit',
+    display: 'inline-block',
   },
   badgeIcon: {
     fontSize: '0.9rem',
