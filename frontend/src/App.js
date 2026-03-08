@@ -695,7 +695,11 @@ function App() {
             <div style={styles.container}>
               <header style={styles.header}>
                 <div style={styles.badge} className="animate-fade-in">
-                  <span style={styles.badgeIcon}>🛡️</span> Trusted by Aashvath Singh
+                  <div style={styles.badgeAvatarWrapper}>
+                    <img src="/ashwat.jpg" alt="Aashvath Singh" style={styles.miniAvatar} onError={(e) => e.target.style.display='none'} />
+                    <span style={styles.badgeIcon}>🛡️</span>
+                  </div>
+                  Trusted by Aashvath Singh
                 </div>
                 <h1 style={styles.title} className="animate-fade-in">Fast <span style={styles.accent}>Scanner</span></h1>
                 <p className="animate-fade-in" style={{ ...styles.subtitle, animationDelay: '0.1s' }}>High-performance website security and speed analysis.</p>
@@ -788,17 +792,6 @@ function App() {
                   </div>
                 )}
 
-                <div style={styles.layoutGroup}>
-                  <section style={styles.aboutSection}>
-                    <div style={styles.aboutContent}>
-                      <img src="/ashwat.jpg" alt="Aashvath Singh" style={styles.avatarImg} onError={(e) => e.target.style.display='none'} />
-                      <div style={styles.bio}>
-                        <h3 style={styles.bioTitle}>Aashvath Singh</h3>
-                        <p style={styles.bioText}>10-year-old developer from Heritage Experiential School, Gurgaon.</p>
-                      </div>
-                    </div>
-                  </section>
-                </div>
 
                 {recentScans.length > 0 && (
                   <section style={styles.historySection}>
@@ -1024,6 +1017,25 @@ const styles = {
   },
   badgeIcon: {
     fontSize: '0.9rem',
+    position: 'absolute',
+    bottom: '-2px',
+    right: '-4px',
+    background: '#1e293b',
+    borderRadius: '50%',
+    padding: '2px',
+    lineHeight: '1',
+  },
+  badgeAvatarWrapper: {
+    position: 'relative',
+    width: '32px',
+    height: '32px',
+  },
+  miniAvatar: {
+    width: '100%',
+    height: '100%',
+    borderRadius: '50%',
+    objectFit: 'cover',
+    border: '1px solid #38bdf8',
   },
   title: {
     fontSize: 'clamp(2.5rem, 8vw, 3.5rem)',
