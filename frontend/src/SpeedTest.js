@@ -8,6 +8,15 @@ function SpeedTest() {
   const [uploadSpeed, setUploadSpeed] = useState(null);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
+  const [selectedServer, setSelectedServer] = useState({ id: 'omni', name: 'Fast Scanner (Local)', provider: 'Airtel/Jio Optimized' });
+
+  const servers = [
+    { id: 'omni', name: 'omnihire.in-Cluster', provider: 'Local Backbone', location: 'Delhi, IN' },
+    { id: 'airtel', name: 'Airtel 5G Node', provider: 'Airtel Digital Limited', location: 'Chennai, IN' },
+    { id: 'jio', name: 'Jio Fiber Edge', provider: 'Reliance Jio Infocomm', location: 'Mumbai, IN' },
+    { id: 'google', name: 'Google Cloud Platform', provider: 'GCP Mumbai-p8', location: 'Mumbai, IN' },
+    { id: 'aws', name: 'Amazon Web Services', provider: 'AWS Edge Accelerator', location: 'Hyderabad, IN' },
+  ];
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
 
@@ -79,13 +88,39 @@ function SpeedTest() {
             <div style={styles.readyContent}>
               <div style={styles.testIcon}>📡</div>
               <h2>Ready to analyze?</h2>
-              <p>We'll measure your latency, download and upload speeds using our nearby high-speed clusters.</p>
+              <p>We'll measure your latency and throughput using our high-speed global nodes.</p>
+              
+              <div style={styles.serverSelection}>
+                <span style={styles.serverLabel}>Selected Test Node:</span>
+                <div style={styles.serverGrid}>
+                  {servers.map(s => (
+                    <button 
+                      key={s.id} 
+                      onClick={() => setSelectedServer(s)}
+                      style={{
+                        ...styles.serverBtn,
+                        borderColor: selectedServer.id === s.id ? '#38bdf8' : 'rgba(255,255,255,0.05)',
+                        backgroundColor: selectedServer.id === s.id ? 'rgba(56, 189, 248, 0.1)' : 'rgba(0,0,0,0.2)',
+                      }}
+                    >
+                      <span style={styles.serverName}>{s.name}</span>
+                      <span style={styles.serverLoc}>{s.location}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <button onClick={runTest} style={styles.startBtn}>Begin Network Audit →</button>
             </div>
           )}
 
           {(status.startsWith('testing') || status === 'finished') && (
             <div style={styles.testingContent}>
+              <div style={styles.activeServerInfo}>
+                <span style={styles.activeLabel}>Connected to:</span>
+                <span style={styles.activeValue}>{selectedServer.name} ({selectedServer.provider})</span>
+              </div>
+              
               <div style={styles.gaugeGrid}>
                 <StatGauge label="Latency" value={ping ? `${ping} ms` : '--'} active={status === 'testing-ping'} unit="PING" color="#fbbf24" />
                 <StatGauge label="Download" value={downloadSpeed ? `${downloadSpeed}` : '--'} active={status === 'testing-download'} unit="MBPS" color="#4ade80" />
@@ -201,6 +236,63 @@ const styles = {
     textAlign: 'center',
     position: 'relative',
     overflow: 'hidden',
+  },
+  serverSelection: {
+    width: '100%',
+    margin: '20px 0',
+    textAlign: 'left',
+  },
+  serverLabel: {
+    fontSize: '0.8rem',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
+    color: '#64748b',
+    fontWeight: '700',
+    display: 'block',
+    marginBottom: '12px',
+  },
+  serverGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+    gap: '10px',
+  },
+  serverBtn: {
+    padding: '12px',
+    borderRadius: '16px',
+    border: '1px solid',
+    color: '#fff',
+    cursor: 'pointer',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: '4px',
+    transition: 'all 0.2s',
+  },
+  serverName: {
+    fontSize: '0.85rem',
+    fontWeight: '700',
+  },
+  serverLoc: {
+    fontSize: '0.7rem',
+    color: '#94a3b8',
+  },
+  activeServerInfo: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: '10px',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    padding: '12px 20px',
+    borderRadius: '16px',
+    marginBottom: '-20px',
+  },
+  activeLabel: {
+    fontSize: '0.85rem',
+    color: '#94a3b8',
+  },
+  activeValue: {
+    fontSize: '0.85rem',
+    color: '#38bdf8',
+    fontWeight: '700',
   },
   readyContent: {
     display: 'flex',
