@@ -14,6 +14,7 @@ function DomainPage() {
   const [captcha, setCaptcha] = useState({ id: '', question: '' });
   const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
   const API_BASE = process.env.REACT_APP_API_URL || '';
@@ -44,6 +45,32 @@ function DomainPage() {
       setCaptcha(json);
     } catch (err) {
       console.error('Failed to fetch captcha', err);
+    }
+  };
+
+  const handleNewScan = async () => {
+    setScanning(true);
+    setSuccessMsg('');
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/scan-v2`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url: domain,
+          visitor_name: visitorName || 'Domain Explorer'
+        })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Scan failed');
+      
+      setSuccessMsg('Fresh intelligence gathered!');
+      fetchDomainData();
+      setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setScanning(false);
     }
   };
 
@@ -137,6 +164,13 @@ function DomainPage() {
               <h2 style={styles.scoreValue}>{Math.round(data.latest.score)}/100</h2>
               <p style={styles.scoreLabel}>Performance Intelligence</p>
             </div>
+            <button 
+              onClick={handleNewScan} 
+              disabled={scanning} 
+              style={{ ...styles.scanBtn, opacity: scanning ? 0.7 : 1 }}
+            >
+              {scanning ? 'Analyzing...' : '🔄 Run New Scan'}
+            </button>
           </div>
 
           <div style={styles.metricsList}>
@@ -574,6 +608,22 @@ const styles = {
     '&:disabled': {
       opacity: 0.5,
       cursor: 'not-allowed'
+    }
+  },
+  scanBtn: {
+    width: '100%',
+    padding: '14px',
+    borderRadius: '12px',
+    border: '1px solid #38bdf8',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    color: '#38bdf8',
+    fontWeight: '700',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+    marginTop: '10px',
+    '&:hover': {
+      backgroundColor: '#38bdf8',
+      color: '#0f172a'
     }
   },
   errorMsg: {
