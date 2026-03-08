@@ -21,7 +21,8 @@ function SpeedTest() {
       const pings = [];
       for(let i=0; i<3; i++) {
         const start = performance.now();
-        await fetch(`${API_BASE}/api/speedtest/ping?t=${Date.now()}`);
+        const res = await fetch(`${API_BASE}/api/speedtest/ping?t=${Date.now()}`);
+        if (!res.ok) throw new Error(`Ping failed with status ${res.status}`);
         pings.push(performance.now() - start);
       }
       const avgPing = pings.reduce((a,b) => a+b, 0) / pings.length;
@@ -31,7 +32,8 @@ function SpeedTest() {
       // 2. Measure Download Speed
       setStatus('testing-download');
       const dlStart = performance.now();
-      const dlRes = await fetch(`${API_BASE}/api/speedtest/download?size=5&t=${Date.now()}`);
+      const dlRes = await fetch(`${API_BASE}/api/speedtest/download?size=3&t=${Date.now()}`);
+      if (!dlRes.ok) throw new Error(`Download failed with status ${dlRes.status}`);
       const dlData = await dlRes.text();
       const dlEnd = performance.now();
       const dlDuration = (dlEnd - dlStart) / 1000; // seconds
@@ -42,11 +44,12 @@ function SpeedTest() {
 
       // 3. Measure Upload Speed
       setStatus('testing-upload');
-      const uploadData = "U".repeat(2 * 1024 * 1024); // 2MB upload
+      const uploadData = "U".repeat(256 * 1024); // 256KB for safe payload through proxies
       const ulRes = await fetch(`${API_BASE}/api/speedtest/upload`, {
         method: 'POST',
         body: uploadData
       });
+      if (!ulRes.ok) throw new Error(`Upload failed with status ${ulRes.status}`);
       const ulJson = await ulRes.json();
       setUploadSpeed(ulJson.mbps.toFixed(2));
       
@@ -54,7 +57,10 @@ function SpeedTest() {
       setStatus('finished');
     } catch (err) {
       console.error("Speedtest failed", err);
-      setError("Network test interrupted. Please check your connection.");
+      let context = `Stage: ${status}`;
+      let detail = err.message || "Unknown error";
+      
+      setError(`${context} | Details: ${detail}`);
       setStatus('ready');
     }
   };
